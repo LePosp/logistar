@@ -3,32 +3,27 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>LogiStar — Step 3 (Галактика: сектора по кругу + свечение ядра)</title>
+  <title>LogiStar — Step 3 (Voronoi + ядро + фикс камеры)</title>
   <style>
     html, body { margin:0; padding:0; height:100%; background:#0b0f15; color:#d7e2ff; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; overflow:hidden; }
     #map { position:absolute; top:0; left:0; width:100%; height:100%; display:block; z-index:1; }
 
-    /* Кнопка подсказок */
     #toggleHints { position:absolute; top:12px; right:12px; z-index:20; padding:8px 10px; border-radius:10px;
                    border:1px solid #24405f; background:#0f1b2a; color:#d7e7ff; cursor:pointer; box-shadow:0 4px 14px rgba(0,0,0,0.35); }
     #toggleHints:hover { background:#132235; }
 
-    /* Верхняя панель */
     #ui  { position:absolute; top:12px; left:12px; right:12px; pointer-events:none; z-index:10; }
     .panel { pointer-events:auto; background:rgba(10,16,24,0.8); backdrop-filter: blur(4px); border:1px solid #162132; border-radius:12px; padding:12px 14px; box-shadow: 0 8px 20px rgba(0,0,0,0.3); }
     .panel h1 { margin:0 0 6px 0; font-size:16px; font-weight:600; color:#cfe3ff; }
     .row { margin:4px 0; }
     .small { font-size:12px; color:#a6b6d0; }
 
-    /* Легенда */
     .legend { position:absolute; bottom:12px; right:12px; background:rgba(10,16,24,0.8); border:1px solid #162132; border-radius:12px; padding:8px 10px; z-index:10; }
     .legend div { font-size:12px; margin:4px 0; }
     .dot { width:10px; height:10px; border-radius:50%; display:inline-block; margin-right:6px; }
 
-    /* Компактный HUD */
     #dbg { position:absolute; left:12px; bottom:12px; z-index:12; background:rgba(0,0,0,0.45); padding:6px 8px; border-radius:8px; font:12px/1.3 system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif; color:#cfe3ff; }
 
-    /* Карточка системы */
     #card { position:absolute; top:88px; right:12px; z-index:11; min-width:240px; max-width:320px;
             background:rgba(10,16,24,0.9); border:1px solid #203049; border-radius:12px; padding:12px 14px; display:none; }
     #card h2 { margin:0 0 8px 0; font-size:15px; color:#e6efff; }
@@ -41,14 +36,13 @@
 </head>
 <body>
   <canvas id="map"></canvas>
-
   <button id="toggleHints" title="Показать/скрыть подсказки (H)">Подсказки</button>
 
   <div id="ui" class="hidden">
     <div class="panel">
-      <h1>LogiStar — Карта (Step 3 • галактические сектора)</h1>
+      <h1>LogiStar — Карта (Step 3 • Voronoi)</h1>
       <div class="row">ЛКМ — панорама • Колёсико — зум • D — сброс • Z/X — зум • ←↑→↓ — панорама • Клик — выбрать систему</div>
-      <div class="row small">Сектора распределены по кольцам вокруг ядра, границы неровные; ядро светится. LOD: зум ≤ 0.7 — сектора, зум &gt; 0.7 — звёздные системы.</div>
+      <div class="row small">Сектора — ячейки Вороного вокруг ядра, без перекрытий; ядро светится. LOD: зум ≤ 0.7 — сектора, зум &gt; 0.7 — звёздные системы.</div>
       <div class="row small" id="hud"></div>
     </div>
   </div>
@@ -71,91 +65,130 @@
   </div>
 
   <script>
-    // -------- PRNG ----------
+    // ---------- PRNG ----------
     function prng(seed){ let s = seed % 2147483647; if(s<=0) s+=2147483646; return ()=> s = s*16807 % 2147483647; }
     function rand01(r){ return r()/2147483647; }
-
-    // -------- Параметры галактики ----------
-    const RING1_R = 3200;
-    const RING2_R = 6200;
-    const RING1_COUNT = 4;
-    const RING2_COUNT = 8;
-    const POLY_POINTS = 9;        // вершин у сектора
-    const POLY_RADIUS = 1900;     // базовый радиус сектора-многоугольника
-    const NOISE = 0.3;            // неровность границ
-
     const rng = prng(42);
 
-    function makeSectorCenter(a, rad){ return { x: Math.cos(a)*rad, y: Math.sin(a)*rad }; }
+    // ---------- Сайты (центры) в двух кольцах ----------
+    const RING1_R = 3200, RING2_R = 6200;
+    const RING1_COUNT = 4,    RING2_COUNT = 8;
 
-    function makeIrregularPolygon(cx, cy, baseR, points, noise, rnd){
-      const verts = [];
-      for(let i=0;i<points;i++){
-        const t = (i/points) * Math.PI*2;
-        const jitter = (rand01(rnd)*2 - 1) * noise;     // -noise..+noise
-        const r = baseR * (1 + jitter);
-        verts.push({ x: cx + Math.cos(t)*r, y: cy + Math.sin(t)*r });
-      }
-      return verts;
-    }
-
-    function centroid(verts){
-      let x=0,y=0; for(const v of verts){ x+=v.x; y+=v.y; } return { x: x/verts.length, y: y/verts.length };
-    }
-
-    // -------- Сектора: 2 кольца вокруг (0,0) ----------
-    const sectors = [];
-    let sid=0;
-    for(let i=0;i<RING1_COUNT;i++){
+    const sites = [];
+    for (let i=0;i<RING1_COUNT;i++){
       const a = (i/RING1_COUNT)*Math.PI*2;
-      const c = makeSectorCenter(a, RING1_R);
-      const poly = makeIrregularPolygon(c.x, c.y, POLY_RADIUS*0.85, POLY_POINTS, NOISE, rng);
-      sectors.push({ id:`S${sid}`, name:`Сектор ${sid}`, poly, center:centroid(poly) }); sid++;
+      sites.push({ x: Math.cos(a)*RING1_R, y: Math.sin(a)*RING1_R, id:i });
     }
-    for(let i=0;i<RING2_COUNT;i++){
+    for (let i=0;i<RING2_COUNT;i++){
       const a = (i/RING2_COUNT)*Math.PI*2 + (Math.PI/RING2_COUNT);
-      const c = makeSectorCenter(a, RING2_R);
-      const poly = makeIrregularPolygon(c.x, c.y, POLY_RADIUS, POLY_POINTS, NOISE, rng);
-      sectors.push({ id:`S${sid}`, name:`Сектор ${sid}`, poly, center:centroid(poly) }); sid++;
+      sites.push({ x: Math.cos(a)*RING2_R, y: Math.sin(a)*RING2_R, id:RING1_COUNT+i });
     }
 
+    // ---------- Вороной через отсечение полуплоскостями ----------
+    const dot = (p,q)=> p.x*q.x + p.y*q.y;
+
+    function clipPolyHalfPlane(poly, n, c){
+      if (poly.length===0) return poly;
+      const out = [];
+      for (let i=0;i<poly.length;i++){
+        const a = poly[i];
+        const b = poly[(i+1)%poly.length];
+        const fa = (a.x*n.x + a.y*n.y) - c;
+        const fb = (b.x*n.x + b.y*n.y) - c;
+        const ain = fa <= 1e-9, bin = fb <= 1e-9;
+
+        if (ain && bin){
+          out.push(b);
+        } else if (ain && !bin){
+          const d = { x:b.x-a.x, y:b.y-a.y };
+          const t = (c - (a.x*n.x + a.y*n.y)) / (d.x*n.x + d.y*n.y);
+          out.push({ x:a.x + d.x*t, y:a.y + d.y*t });
+        } else if (!ain && bin){
+          const d = { x:b.x-a.x, y:b.y-a.y };
+          const t = (c - (a.x*n.x + a.y*n.y)) / (d.x*n.x + d.y*n.y);
+          out.push({ x:a.x + d.x*t, y:a.y + d.y*t });
+          out.push(b);
+        }
+      }
+      return out;
+    }
+
+    // большая круглая «граница галактики» для обрезки
+    const BOUND_R = RING2_R * 1.5;
+    function makeCirclePoly(r=BOUND_R, segs=96){
+      const poly = [];
+      for (let i=0;i<segs;i++){
+        const t = (i/segs)*Math.PI*2;
+        poly.push({ x: Math.cos(t)*r, y: Math.sin(t)*r });
+      }
+      return poly;
+    }
+    const galaxyBorder = makeCirclePoly(BOUND_R, 96);
+
+    // строим ячейки
+    const sectors = [];
+    for (let i=0;i<sites.length;i++){
+      const A = sites[i];
+      let cell = galaxyBorder.slice();
+      for (let j=0;j<sites.length;j++){
+        if (i===j) continue;
+        const B = sites[j];
+        const n = { x: B.x - A.x, y: B.y - A.y };
+        const c = (dot(B,B) - dot(A,A)) * 0.5;
+        cell = clipPolyHalfPlane(cell, n, c);
+        if (!cell.length) break;
+      }
+      if (cell.length){
+        let cx=0, cy=0; for(const v of cell){ cx+=v.x; cy+=v.y; } cx/=cell.length; cy/=cell.length;
+        sectors.push({ id:`S${i}`, name:`Сектор ${i}`, poly:cell, center:{x:cx,y:cy} });
+      }
+    }
+
+    // границы мира
     function boundsOfSectors(secs){
-      let minX=1e9,minY=1e9,maxX=-1e9,maxY=-1e9;
-      for(const s of secs){
-        for(const v of s.poly){
-          if(v.x<minX) minX=v.x; if(v.y<minY) minY=v.y; if(v.x>maxX) maxX=v.x; if(v.y>maxY) maxY=v.y;
+      let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
+      for (const s of secs){
+        for (const v of s.poly){
+          if(v.x<minX)minX=v.x; if(v.y<minY)minY=v.y;
+          if(v.x>maxX)maxX=v.x; if(v.y>maxY)maxY=v.y;
         }
       }
       return {minX,minY,maxX,maxY, width:maxX-minX, height:maxY-minY, cx:(minX+maxX)/2, cy:(minY+maxY)/2};
     }
     const worldBounds = boundsOfSectors(sectors);
 
-    // -------- Системы внутри полигонов ----------
+    // попадание и случайная точка в полигоне
     function pointInPoly(pt, poly){
       let c=false;
       for(let i=0,j=poly.length-1;i<poly.length;j=i++){
         const xi=poly[i].x, yi=poly[i].y, xj=poly[j].x, yj=poly[j].y;
         const inter = ((yi>pt.y)!=(yj>pt.y)) && (pt.x < (xj-xi)*(pt.y-yi)/(yj-yi+1e-9) + xi);
-        if(inter) c=!c;
+        if (inter) c=!c;
       }
       return c;
     }
     function randomPointInPoly(poly, rnd){
-      let minX=1e9,minY=1e9,maxX=-1e9,maxY=-1e9;
-      for(const v of poly){ if(v.x<minX)minX=v.x; if(v.y<minY)minY=v.y; if(v.x>maxX)maxX=v.x; if(v.y>maxY)maxY=v.y; }
-      for(let k=0;k<1500;k++){
+      let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=Infinity*-1;
+      for (const v of poly){ 
+        if(v.x<minX)minX=v.x; 
+        if(v.y<minY)minY=v.y; 
+        if(v.x>maxX)maxX=v.x; 
+        if(v.y>maxY)maxY=v.y; 
+      }
+      for(let k=0;k<2000;k++){
         const x=minX + rand01(rnd)*(maxX-minX);
         const y=minY + rand01(rnd)*(maxY-minY);
-        if(pointInPoly({x,y}, poly)) return {x,y};
+        if (pointInPoly({x,y}, poly)) return {x,y};
       }
-      return centroid(poly);
+      return { x:(minX+maxX)/2, y:(minY+maxY)/2 };
     }
 
+    // системы
     const systems = [];
     let sysId=0;
-    for(const sec of sectors){
-      const count = 12 + Math.floor(rand01(rng)*14);  // 12..25
-      for(let i=0;i<count;i++){
+    for (const sec of sectors){
+      const count = 12 + Math.floor(rand01(rng)*14); // 12..25
+      for (let i=0;i<count;i++){
         const p = randomPointInPoly(sec.poly, rng);
         const t = rand01(rng);
         const type = t<0.34 ? 'mining' : (t<0.67 ? 'gas' : 'hub');
@@ -163,7 +196,7 @@
       }
     }
 
-    // -------- Рендер/ввод ----------
+    // ---------- Рендер/ввод ----------
     const canvas = document.getElementById('map');
     const ctx = canvas.getContext('2d');
     const hud = document.getElementById('hud');
@@ -171,7 +204,6 @@
     const legend = document.getElementById('legend');
     const ui = document.getElementById('ui');
     const toggleHintsBtn = document.getElementById('toggleHints');
-
     const card = document.getElementById('card');
     const cardTitle = document.getElementById('cardTitle');
     const cardMeta = document.getElementById('cardMeta');
@@ -203,14 +235,13 @@
     function screenToWorld(x,y){ return { x:x/transform.scale - transform.x, y:y/transform.scale - transform.y }; }
 
     function centerView(){
-      // центрируем на (0,0) — центр галактики
       const cx = canvas.width/2, cy = canvas.height/2;
       transform.x = (cx/transform.scale);
       transform.y = (cy/transform.scale);
       updateDbg();
     }
 
-    // фоновые звезды (экранные)
+    // фоновые звезды: экранные и мировые
     function fract(n){ return n - Math.floor(n); }
     function hash(x,y){ return fract(Math.sin(x*127.1 + y*311.7) * 43758.5453); }
     function drawScreenStars(step, alpha, size, offsetFactor){
@@ -231,23 +262,19 @@
       ctx.restore();
     }
 
-    // свечение ядра (мировые координаты)
     function drawCore(){
       const p = worldToScreen(0,0);
       const baseR = 900 * transform.scale;
       ctx.save();
       ctx.globalCompositeOperation = 'lighter';
-      // внешний ореол
       let g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, baseR*2.2);
       g.addColorStop(0, 'rgba(240,248,255,0.07)');
       g.addColorStop(1, 'rgba(240,248,255,0)');
       ctx.fillStyle = g; ctx.beginPath(); ctx.arc(p.x, p.y, baseR*2.2, 0, Math.PI*2); ctx.fill();
-      // средний
       g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, baseR*1.3);
       g.addColorStop(0, 'rgba(200,230,255,0.12)');
       g.addColorStop(1, 'rgba(200,230,255,0)');
       ctx.fillStyle = g; ctx.beginPath(); ctx.arc(p.x, p.y, baseR*1.3, 0, Math.PI*2); ctx.fill();
-      // внутреннее свечение
       g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, baseR*0.6);
       g.addColorStop(0, 'rgba(255,255,255,0.25)');
       g.addColorStop(1, 'rgba(255,255,255,0)');
@@ -255,7 +282,6 @@
       ctx.restore();
     }
 
-    // звезды в мировом пространстве
     let worldStarsFar=[], worldStarsNear=[];
     (function initWorldStars(){
       const rnd = prng(1337);
@@ -281,16 +307,21 @@
       ctx.restore();
     }
 
+    // --- фикс клампа камеры: панорамирование во все стороны ---
     function clampTransform(){
-      const margin = 400;
-      const viewW = canvas.width/transform.scale;
-      const viewH = canvas.height/transform.scale;
-      transform.x = Math.min(viewW - margin, Math.max(-worldBounds.width + margin, transform.x));
-      transform.y = Math.min(viewH - margin, Math.max(-worldBounds.height + margin, transform.y));
+      const pad = 200;
+      const viewW = canvas.width  / transform.scale;
+      const viewH = canvas.height / transform.scale;
+      const minTx = -(worldBounds.maxX + pad - viewW);
+      const maxTx = -worldBounds.minX + pad;
+      const minTy = -(worldBounds.maxY + pad - viewH);
+      const maxTy = -worldBounds.minY + pad;
+      transform.x = Math.min(maxTx, Math.max(minTx, transform.x));
+      transform.y = Math.min(maxTy, Math.max(minTy, transform.y));
       updateDbg();
     }
 
-    // --- ввод ---
+    // ввод
     let mouseDown=false, mlx=0, mly=0;
     let mouseX = window.innerWidth/2, mouseY = window.innerHeight/2;
 
@@ -302,6 +333,7 @@
       const dx=e.clientX-mlx, dy=e.clientY-mly; mlx=e.clientX; mly=e.clientY;
       transform.x += dx/transform.scale; transform.y += dy/transform.scale; clampTransform(); draw();
     }, {passive:false});
+
     function onWheel(e){
       e.preventDefault();
       const dir = e.deltaY < 0 ? 1 : -1;
@@ -316,7 +348,6 @@
     canvas.addEventListener('wheel', onWheel, {passive:false});
     window.addEventListener('wheel', onWheel, {passive:false});
 
-    // Клавиатура
     window.addEventListener('keydown', e=>{
       const k = e.key.toLowerCase();
       const panStep = 120/transform.scale;
@@ -336,10 +367,10 @@
       dbg.textContent = `x: ${Math.round(w.x)}, y: ${Math.round(w.y)}, z: ${transform.scale.toFixed(2)}`;
     }
 
-    // Выбор системы
+    // выбор системы
     let selectedSystem = null;
     canvas.addEventListener('click', e=>{
-      if (transform.scale <= lodThreshold) return; // систем не видно
+      if (transform.scale <= lodThreshold) return;
       const mx = e.clientX, my = e.clientY;
       let hit = null, bestDist = 1e9;
       for (const s of systems){
@@ -361,7 +392,7 @@
       draw();
     });
 
-    // Рендеринг
+    // рендер
     function drawBackground(){
       const g = ctx.createLinearGradient(0,0,0,canvas.height);
       g.addColorStop(0,'#07111a'); g.addColorStop(1,'#0c1016');
@@ -369,7 +400,8 @@
       drawScreenStars(100, 0.28, 1, 0.20);
       drawScreenStars(60,  0.35, 1.2, 0.30);
       drawWorldStars();
-      drawCore(); // свечение ядра
+      // ядро
+      drawCore();
     }
 
     function drawSectors(){
