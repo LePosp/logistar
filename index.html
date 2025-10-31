@@ -3,33 +3,220 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>LogiStar — Step 1</title>
-  <link rel="stylesheet" href="styles.css"/>
+  <title>LogiStar — Step 1 (single-file v5)</title>
   <style>
-    html, body { overflow: hidden; } /* блок скролла страницы */
-    #map { position:absolute; top:0; left:0; width:100%; height:100%; z-index:1; }
-    #ui  { position:absolute; top:12px; left:12px; right:12px; z-index:10; pointer-events:none; }
-    .panel { pointer-events:auto; }
-    #err { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
-           background:rgba(0,0,0,0.6); padding:12px 14px; border:1px solid #833; border-radius:8px; color:#f7c6c6; z-index:20; font:14px/1.4 system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; display:none; }
-    #dbg { position:absolute; bottom:10px; left:12px; background:rgba(0,0,0,0.4); color:#cfe3ff; padding:6px 8px; border-radius:8px; z-index:15; font:12px/1.3 system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif; }
+    html, body { margin:0; padding:0; height:100%; background:#0b0f15; color:#d7e2ff; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; overflow:hidden; }
+    #map { position:absolute; top:0; left:0; width:100%; height:100%; display:block; z-index:1; }
+    #ui  { position:absolute; top:12px; left:12px; right:12px; pointer-events:none; z-index:10; }
+    .panel { pointer-events:auto; background:rgba(10,16,24,0.8); backdrop-filter: blur(4px); border:1px solid #162132; border-radius:12px; padding:12px 14px; box-shadow: 0 8px 20px rgba(0,0,0,0.3); }
+    .panel h1 { margin:0 0 6px 0; font-size:16px; font-weight:600; color:#cfe3ff; }
+    .row { margin:4px 0; }
+    .small { font-size:12px; color:#a6b6d0; }
+    .legend { position:absolute; bottom:12px; right:12px; background:rgba(10,16,24,0.8); border:1px solid #162132; border-radius:12px; padding:8px 10px; z-index:10; }
+    .legend div { font-size:12px; margin:4px 0; }
+    .dot { width:10px; height:10px; border-radius:50%; display:inline-block; margin-right:6px; }
+    #hud { opacity:0.85 }
   </style>
 </head>
 <body>
-  <canvas id="map"></canvas>
-
   <div id="ui">
     <div class="panel">
-      <h1>LogiStar — Карта (Step 1)</h1>
+      <h1>LogiStar — Карта (Step 1 • single‑file v5)</h1>
       <div class="row">ЛКМ — панорама • Колёсико — зум вокруг курсора • D — сброс вида</div>
       <div class="row small">LOD: зум ≤ 0.7 — сектора, зум &gt; 0.7 — звёздные системы.</div>
       <div class="row small" id="hud"></div>
     </div>
   </div>
+  <div class="legend">
+    <div><span class="dot" style="background:#f3b56b"></span>Добывающая</div>
+    <div><span class="dot" style="background:#9be0ff"></span>Газовая</div>
+    <div><span class="dot" style="background:#b9ffa4"></span>Хаб</div>
+  </div>
+  <canvas id="map"></canvas>
 
-  <div id="dbg">init…</div>
-  <div id="err"></div>
+  <script>
+    // ======= DATA (embedded) =======
+    const SECTOR_SIZE = 4000;
+    const GRID = { cols: 3, rows: 2 };
+    const sectors = [];
+    let sid = 0;
+    for (let gy=0; gy<GRID.rows; gy++) {
+      for (let gx=0; gx<GRID.cols; gx++) {
+        sectors.push({ id:`S${sid}`, name:`Сектор ${sid}`, x: gx*SECTOR_SIZE, y: gy*SECTOR_SIZE, w: SECTOR_SIZE, h: SECTOR_SIZE });
+        sid++;
+      }
+    }
+    // Deterministic systems (seed=42)
+    function prng(seed){ let s = seed % 2147483647; if(s<=0) s+=2147483646; return ()=> s = s*16807 % 2147483647; }
+    const rng = prng(42);
+    const systems = [];
+    let sysId = 0;
+    for (const sec of sectors){
+      const count = Math.max(12, Math.min(28, Math.floor((rng()/2147483647)*8 + 18))); // ~18..26
+      for (let i=0;i<count;i++){
+        const m = 300;
+        const rx = sec.x + m + (sec.w - 2*m) * (rng()/2147483647);
+        const ry = sec.y + m + (sec.h - 2*m) * (rng()/2147483647);
+        const t = (rng()/2147483647);
+        const type = t<0.34 ? 'mining' : (t<0.67 ? 'gas' : 'hub');
+        systems.push({ id:`SYS${sysId++}`, name:`Система ${sysId-1}`, sectorId: sec.id, x: rx, y: ry, type });
+      }
+    }
 
-  <script src="script.v4.js"></script>
+    // ======= RENDER =======
+    const canvas = document.getElementById('map');
+    const ctx = canvas.getContext('2d');
+    const hud = document.getElementById('hud');
+
+    let world = { width: GRID.cols*SECTOR_SIZE, height: GRID.rows*SECTOR_SIZE };
+    let transform = { x: 0, y: 0, scale: 0.55 };
+    const lodThreshold = 0.7;
+
+    function resize(){
+      canvas.width = innerWidth;
+      canvas.height = innerHeight;
+      draw();
+    }
+    addEventListener('resize', resize);
+    resize();
+
+    function worldToScreen(x,y){ return { x:(x+transform.x)*transform.scale, y:(y+transform.y)*transform.scale }; }
+    function screenToWorld(x,y){ return { x:x/transform.scale - transform.x, y:y/transform.scale - transform.y }; }
+
+    function centerView(){
+      transform.scale = 0.55;
+      transform.x = -(world.width/2 - canvas.width/(2*transform.scale));
+      transform.y = -(world.height/2 - canvas.height/(2*transform.scale));
+    }
+    centerView();
+
+    // --- Stars ---
+    function fract(n){ return n - Math.floor(n); }
+    function hash(x,y){ return fract(Math.sin(x*127.1 + y*311.7) * 43758.5453); }
+    function drawScreenStars(step, alpha, size, offsetFactor){
+      const cols = Math.ceil(canvas.width / step) + 2;
+      const rows = Math.ceil(canvas.height / step) + 2;
+      const offX = (transform.x * offsetFactor) % step;
+      const offY = (transform.y * offsetFactor) % step;
+      ctx.save(); ctx.globalAlpha = alpha; ctx.fillStyle = '#dfe8ff';
+      for(let iy=-1; iy<rows; iy++){
+        for(let ix=-1; ix<cols; ix++){
+          const jx = hash(ix + Math.floor(transform.x), iy + Math.floor(transform.y));
+          const jy = hash(ix + 17 + Math.floor(transform.x), iy + 29 + Math.floor(transform.y));
+          const x = ix*step + jx*step + offX;
+          const y = iy*step + jy*step + offY;
+          ctx.fillRect(x, y, size, size);
+        }
+      }
+      ctx.restore();
+    }
+    let worldStarsFar=[], worldStarsNear=[];
+    (function initWorldStars(){
+      const rnd = prng(1337);
+      function gen(n){ const a=[]; for(let i=0;i<n;i++){ a.push({x:(rnd()/2147483647)*world.width, y:(rnd()/2147483647)*world.height}); } return a; }
+      worldStarsFar = gen(1400); worldStarsNear = gen(600);
+    })();
+    function drawWorldStars(){
+      const viewW = canvas.width/transform.scale, viewH = canvas.height/transform.scale;
+      const viewX = -transform.x, viewY = -transform.y;
+      ctx.save();
+      ctx.globalAlpha = 0.25;
+      for(const s of worldStarsFar){
+        if(s.x < viewX-200 || s.x > viewX+viewW+200 || s.y < viewY-200 || s.y > viewY+viewH+200) continue;
+        const p = worldToScreen(s.x, s.y);
+        ctx.fillStyle = '#cfe0ff'; ctx.fillRect(p.x, p.y, 1, 1);
+      }
+      ctx.globalAlpha = 0.5;
+      for(const s of worldStarsNear){
+        if(s.x < viewX-200 || s.x > viewX+viewW+200 || s.y < viewY-200 || s.y > viewY+viewH+200) continue;
+        const p = worldToScreen(s.x, s.y);
+        ctx.fillStyle = '#f2f6ff'; ctx.fillRect(p.x, p.y, 1.2, 1.2);
+      }
+      ctx.restore();
+    }
+
+    function clampTransform(){
+      const margin = 400;
+      const viewW = canvas.width/transform.scale;
+      const viewH = canvas.height/transform.scale;
+      transform.x = Math.min(viewW - margin, Math.max(-world.width + margin, transform.x));
+      transform.y = Math.min(viewH - margin, Math.max(-world.height + margin, transform.y));
+    }
+
+    let mouseDown=false, mlx=0, mly=0;
+    canvas.addEventListener('mousedown', e=>{ mouseDown=true; mlx=e.clientX; mly=e.clientY; });
+    addEventListener('mouseup', ()=>{ mouseDown=false; });
+    addEventListener('mousemove', e=>{
+      if(!mouseDown) return;
+      const dx=e.clientX-mlx, dy=e.clientY-mly; mlx=e.clientX; mly=e.clientY;
+      transform.x += dx/transform.scale; transform.y += dy/transform.scale; clampTransform(); draw();
+    }, {passive:false});
+    function onWheel(e){
+      e.preventDefault();
+      const dir = e.deltaY < 0 ? 1 : -1;
+      const zoomIntensity = 0.18;
+      const mouseWorld = screenToWorld(e.clientX, e.clientY);
+      let newScale = transform.scale * (1 + dir*zoomIntensity);
+      newScale = Math.max(0.15, Math.min(3.0, newScale));
+      const newTx = (e.clientX / newScale) - mouseWorld.x;
+      const newTy = (e.clientY / newScale) - mouseWorld.y;
+      transform.scale = newScale; transform.x = newTx; transform.y = newTy; clampTransform(); draw();
+    }
+    canvas.addEventListener('wheel', onWheel, {passive:false});
+    addEventListener('wheel', onWheel, {passive:false});
+    addEventListener('keydown', e=>{ if(e.key.toLowerCase()==='d'){ centerView(); draw(); } });
+
+    function drawBackground(){
+      const g = ctx.createLinearGradient(0,0,0,canvas.height);
+      g.addColorStop(0,'#07111a'); g.addColorStop(1,'#0c1016');
+      ctx.fillStyle = g; ctx.fillRect(0,0,canvas.width, canvas.height);
+      drawScreenStars(100, 0.28, 1, 0.20);
+      drawScreenStars(60,  0.35, 1.2, 0.30);
+      drawWorldStars();
+    }
+
+    function drawSectors(){
+      ctx.save();
+      ctx.lineWidth = Math.max(1, 2*transform.scale);
+      for (const s of sectors){
+        const p = worldToScreen(s.x, s.y);
+        const w = s.w*transform.scale, h = s.h*transform.scale;
+        ctx.fillStyle = 'rgba(40, 70, 110, 0.03)';
+        ctx.strokeStyle = 'rgba(39, 64, 95, 0.30)';
+        ctx.fillRect(p.x, p.y, w, h);
+        ctx.strokeRect(p.x, p.y, w, h);
+        ctx.fillStyle = 'rgba(210,230,255,0.86)';
+        ctx.font = `${Math.max(12, 14*transform.scale)}px sans-serif`;
+        ctx.fillText(s.name, p.x + 8, p.y + Math.max(14,16*transform.scale));
+      }
+      ctx.restore();
+    }
+
+    function drawSystems(){
+      ctx.save();
+      const r = Math.max(3, 4.5*transform.scale);
+      for(const sys of systems){
+        const p = worldToScreen(sys.x, sys.y);
+        let color = sys.type==='mining' ? '#f3b56b' : (sys.type==='gas' ? '#9be0ff' : '#b9ffa4');
+        ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI*2);
+        ctx.fillStyle = color; ctx.shadowColor = 'rgba(0,0,0,0.4)'; ctx.shadowBlur = 4; ctx.fill();
+        if(transform.scale > 1.0){
+          ctx.shadowBlur = 0;
+          ctx.fillStyle = 'rgba(215,226,255,0.92)';
+          ctx.font = `${Math.max(10, 12*transform.scale)}px sans-serif`;
+          ctx.fillText(sys.name, p.x + 6*r, p.y - 2);
+        }
+      }
+      ctx.restore();
+    }
+
+    function draw(){
+      drawBackground();
+      hud.textContent = `v5 | Зум: ${transform.scale.toFixed(2)} | смещение: (${transform.x.toFixed(0)}, ${transform.y.toFixed(0)}) | сектора: ${sectors.length} | системы: ${systems.length}`;
+      drawSectors();
+      if(transform.scale > lodThreshold) drawSystems();
+    }
+    draw();
+  </script>
 </body>
 </html>
