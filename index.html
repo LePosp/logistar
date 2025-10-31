@@ -3,64 +3,64 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>LogiStar — Step 2.1 (UI: подсказки и HUD)</title>
+  <title>LogiStar — Step 3 (Галактика: сектора по кругу + свечение ядра)</title>
   <style>
     html, body { margin:0; padding:0; height:100%; background:#0b0f15; color:#d7e2ff; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; overflow:hidden; }
     #map { position:absolute; top:0; left:0; width:100%; height:100%; display:block; z-index:1; }
-    /* верхняя панель-подсказка */
+
+    /* Кнопка подсказок */
+    #toggleHints { position:absolute; top:12px; right:12px; z-index:20; padding:8px 10px; border-radius:10px;
+                   border:1px solid #24405f; background:#0f1b2a; color:#d7e7ff; cursor:pointer; box-shadow:0 4px 14px rgba(0,0,0,0.35); }
+    #toggleHints:hover { background:#132235; }
+
+    /* Верхняя панель */
     #ui  { position:absolute; top:12px; left:12px; right:12px; pointer-events:none; z-index:10; }
     .panel { pointer-events:auto; background:rgba(10,16,24,0.8); backdrop-filter: blur(4px); border:1px solid #162132; border-radius:12px; padding:12px 14px; box-shadow: 0 8px 20px rgba(0,0,0,0.3); }
     .panel h1 { margin:0 0 6px 0; font-size:16px; font-weight:600; color:#cfe3ff; }
     .row { margin:4px 0; }
     .small { font-size:12px; color:#a6b6d0; }
-    /* легенда */
+
+    /* Легенда */
     .legend { position:absolute; bottom:12px; right:12px; background:rgba(10,16,24,0.8); border:1px solid #162132; border-radius:12px; padding:8px 10px; z-index:10; }
     .legend div { font-size:12px; margin:4px 0; }
     .dot { width:10px; height:10px; border-radius:50%; display:inline-block; margin-right:6px; }
-    /* компактный HUD координат */
+
+    /* Компактный HUD */
     #dbg { position:absolute; left:12px; bottom:12px; z-index:12; background:rgba(0,0,0,0.45); padding:6px 8px; border-radius:8px; font:12px/1.3 system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif; color:#cfe3ff; }
-    /* карточка выбранной системы */
-    #card { position:absolute; top:88px; right:12px; z-index:11; min-width:240px; max-width:280px;
+
+    /* Карточка системы */
+    #card { position:absolute; top:88px; right:12px; z-index:11; min-width:240px; max-width:320px;
             background:rgba(10,16,24,0.9); border:1px solid #203049; border-radius:12px; padding:12px 14px; display:none; }
     #card h2 { margin:0 0 8px 0; font-size:15px; color:#e6efff; }
     #card .meta { font-size:12px; color:#a9bdd8; line-height:1.5; }
     #card .actions { margin-top:10px; display:flex; gap:8px; }
     #card .btn { padding:6px 10px; border-radius:8px; border:1px solid #2a3d5c; background:#122033; color:#dce9ff; cursor:pointer; }
-    /* кнопка "Подсказки" */
-    #toggleHints { position:absolute; top:12px; right:12px; z-index:20; padding:8px 10px; border-radius:10px;
-                   border:1px solid #24405f; background:#0f1b2a; color:#d7e7ff; cursor:pointer; box-shadow:0 4px 14px rgba(0,0,0,0.35); }
-    #toggleHints:hover { background:#132235; }
-    /* скрытие элементов */
+
     .hidden { display:none !important; }
   </style>
 </head>
 <body>
   <canvas id="map"></canvas>
 
-  <!-- кнопка сворачивания подсказок и легенды -->
   <button id="toggleHints" title="Показать/скрыть подсказки (H)">Подсказки</button>
 
-  <!-- верхняя панель с подсказками -->
   <div id="ui" class="hidden">
     <div class="panel">
-      <h1>LogiStar — Карта (Step 2.1 • выбор системы)</h1>
+      <h1>LogiStar — Карта (Step 3 • галактические сектора)</h1>
       <div class="row">ЛКМ — панорама • Колёсико — зум • D — сброс • Z/X — зум • ←↑→↓ — панорама • Клик — выбрать систему</div>
-      <div class="row small">LOD: зум ≤ 0.7 — сектора, зум &gt; 0.7 — звёздные системы.</div>
+      <div class="row small">Сектора распределены по кольцам вокруг ядра, границы неровные; ядро светится. LOD: зум ≤ 0.7 — сектора, зум &gt; 0.7 — звёздные системы.</div>
       <div class="row small" id="hud"></div>
     </div>
   </div>
 
-  <!-- легенда (тоже прячется) -->
   <div id="legend" class="legend hidden">
     <div><span class="dot" style="background:#f3b56b"></span>Добывающая</div>
     <div><span class="dot" style="background:#9be0ff"></span>Газовая</div>
     <div><span class="dot" style="background:#b9ffa4"></span>Хаб</div>
   </div>
 
-  <!-- компактный HUD координат -->
   <div id="dbg">x: 0, y: 0, z: 0.00</div>
 
-  <!-- карточка выбранной системы -->
   <div id="card">
     <h2 id="cardTitle">Система</h2>
     <div class="meta" id="cardMeta"></div>
@@ -71,35 +71,99 @@
   </div>
 
   <script>
-    // ======= DATA (embedded) =======
-    const SECTOR_SIZE = 4000;
-    const GRID = { cols: 3, rows: 2 };
-    const sectors = [];
-    let sid = 0;
-    for (let gy=0; gy<GRID.rows; gy++) {
-      for (let gx=0; gx<GRID.cols; gx++) {
-        sectors.push({ id:`S${sid}`, name:`Сектор ${sid}`, x: gx*SECTOR_SIZE, y: gy*SECTOR_SIZE, w: SECTOR_SIZE, h: SECTOR_SIZE });
-        sid++;
-      }
-    }
-    // Deterministic systems (seed=42)
+    // -------- PRNG ----------
     function prng(seed){ let s = seed % 2147483647; if(s<=0) s+=2147483646; return ()=> s = s*16807 % 2147483647; }
+    function rand01(r){ return r()/2147483647; }
+
+    // -------- Параметры галактики ----------
+    const RING1_R = 3200;
+    const RING2_R = 6200;
+    const RING1_COUNT = 4;
+    const RING2_COUNT = 8;
+    const POLY_POINTS = 9;        // вершин у сектора
+    const POLY_RADIUS = 1900;     // базовый радиус сектора-многоугольника
+    const NOISE = 0.3;            // неровность границ
+
     const rng = prng(42);
+
+    function makeSectorCenter(a, rad){ return { x: Math.cos(a)*rad, y: Math.sin(a)*rad }; }
+
+    function makeIrregularPolygon(cx, cy, baseR, points, noise, rnd){
+      const verts = [];
+      for(let i=0;i<points;i++){
+        const t = (i/points) * Math.PI*2;
+        const jitter = (rand01(rnd)*2 - 1) * noise;     // -noise..+noise
+        const r = baseR * (1 + jitter);
+        verts.push({ x: cx + Math.cos(t)*r, y: cy + Math.sin(t)*r });
+      }
+      return verts;
+    }
+
+    function centroid(verts){
+      let x=0,y=0; for(const v of verts){ x+=v.x; y+=v.y; } return { x: x/verts.length, y: y/verts.length };
+    }
+
+    // -------- Сектора: 2 кольца вокруг (0,0) ----------
+    const sectors = [];
+    let sid=0;
+    for(let i=0;i<RING1_COUNT;i++){
+      const a = (i/RING1_COUNT)*Math.PI*2;
+      const c = makeSectorCenter(a, RING1_R);
+      const poly = makeIrregularPolygon(c.x, c.y, POLY_RADIUS*0.85, POLY_POINTS, NOISE, rng);
+      sectors.push({ id:`S${sid}`, name:`Сектор ${sid}`, poly, center:centroid(poly) }); sid++;
+    }
+    for(let i=0;i<RING2_COUNT;i++){
+      const a = (i/RING2_COUNT)*Math.PI*2 + (Math.PI/RING2_COUNT);
+      const c = makeSectorCenter(a, RING2_R);
+      const poly = makeIrregularPolygon(c.x, c.y, POLY_RADIUS, POLY_POINTS, NOISE, rng);
+      sectors.push({ id:`S${sid}`, name:`Сектор ${sid}`, poly, center:centroid(poly) }); sid++;
+    }
+
+    function boundsOfSectors(secs){
+      let minX=1e9,minY=1e9,maxX=-1e9,maxY=-1e9;
+      for(const s of secs){
+        for(const v of s.poly){
+          if(v.x<minX) minX=v.x; if(v.y<minY) minY=v.y; if(v.x>maxX) maxX=v.x; if(v.y>maxY) maxY=v.y;
+        }
+      }
+      return {minX,minY,maxX,maxY, width:maxX-minX, height:maxY-minY, cx:(minX+maxX)/2, cy:(minY+maxY)/2};
+    }
+    const worldBounds = boundsOfSectors(sectors);
+
+    // -------- Системы внутри полигонов ----------
+    function pointInPoly(pt, poly){
+      let c=false;
+      for(let i=0,j=poly.length-1;i<poly.length;j=i++){
+        const xi=poly[i].x, yi=poly[i].y, xj=poly[j].x, yj=poly[j].y;
+        const inter = ((yi>pt.y)!=(yj>pt.y)) && (pt.x < (xj-xi)*(pt.y-yi)/(yj-yi+1e-9) + xi);
+        if(inter) c=!c;
+      }
+      return c;
+    }
+    function randomPointInPoly(poly, rnd){
+      let minX=1e9,minY=1e9,maxX=-1e9,maxY=-1e9;
+      for(const v of poly){ if(v.x<minX)minX=v.x; if(v.y<minY)minY=v.y; if(v.x>maxX)maxX=v.x; if(v.y>maxY)maxY=v.y; }
+      for(let k=0;k<1500;k++){
+        const x=minX + rand01(rnd)*(maxX-minX);
+        const y=minY + rand01(rnd)*(maxY-minY);
+        if(pointInPoly({x,y}, poly)) return {x,y};
+      }
+      return centroid(poly);
+    }
+
     const systems = [];
-    let sysId = 0;
-    for (const sec of sectors){
-      const count = Math.max(12, Math.min(28, Math.floor((rng()/2147483647)*8 + 18))); // ~18..26
-      for (let i=0;i<count;i++){
-        const m = 300;
-        const rx = sec.x + m + (sec.w - 2*m) * (rng()/2147483647);
-        const ry = sec.y + m + (sec.h - 2*m) * (rng()/2147483647);
-        const t = (rng()/2147483647);
+    let sysId=0;
+    for(const sec of sectors){
+      const count = 12 + Math.floor(rand01(rng)*14);  // 12..25
+      for(let i=0;i<count;i++){
+        const p = randomPointInPoly(sec.poly, rng);
+        const t = rand01(rng);
         const type = t<0.34 ? 'mining' : (t<0.67 ? 'gas' : 'hub');
-        systems.push({ id:`SYS${sysId++}`, name:`Система ${sysId-1}`, sectorId: sec.id, x: rx, y: ry, type });
+        systems.push({ id:`SYS${sysId++}`, name:`Система ${sysId}`, sectorId: sec.id, x:p.x, y:p.y, type });
       }
     }
 
-    // ======= RENDER =======
+    // -------- Рендер/ввод ----------
     const canvas = document.getElementById('map');
     const ctx = canvas.getContext('2d');
     const hud = document.getElementById('hud');
@@ -114,22 +178,15 @@
     document.getElementById('closeCard').onclick = ()=>{ selectedSystem = null; card.style.display='none'; draw(); };
     document.getElementById('enterBtn').onclick = ()=> alert('Заглушка: входим в локальную карту системы');
 
-    let world = { width: GRID.cols*SECTOR_SIZE, height: GRID.rows*SECTOR_SIZE };
-    let transform = { x: 0, y: 0, scale: 0.55 };
+    let transform = { x: 0, y: 0, scale: 0.28 };
     const lodThreshold = 0.7;
     let isReady = false;
 
-    // toggle hints (panel + legend)
-    function setHintsVisible(v){
-      ui.classList.toggle('hidden', !v);
-      legend.classList.toggle('hidden', !v);
-    }
-    let hintsVisible = false; // по умолчанию скрыты
-    setHintsVisible(hintsVisible);
+    function setHintsVisible(v){ ui.classList.toggle('hidden', !v); legend.classList.toggle('hidden', !v); }
+    let hintsVisible = false; setHintsVisible(hintsVisible);
     toggleHintsBtn.addEventListener('click', ()=> { hintsVisible = !hintsVisible; setHintsVisible(hintsVisible); });
     window.addEventListener('keydown', (e)=>{ if (e.key.toLowerCase()==='h'){ hintsVisible = !hintsVisible; setHintsVisible(hintsVisible); } });
 
-    // canvas DPI
     function resizeCanvas(){
       const dpr = Math.max(1, window.devicePixelRatio || 1);
       const cssW = window.innerWidth, cssH = window.innerHeight;
@@ -138,7 +195,7 @@
       canvas.width = Math.floor(cssW * dpr);
       canvas.height = Math.floor(cssH * dpr);
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      if (isReady) draw();
+      if(isReady) draw();
     }
     window.addEventListener('resize', resizeCanvas);
 
@@ -146,13 +203,14 @@
     function screenToWorld(x,y){ return { x:x/transform.scale - transform.x, y:y/transform.scale - transform.y }; }
 
     function centerView(){
-      transform.scale = 0.55;
-      transform.x = -(world.width/2 - (canvas.width/(2*transform.scale)));
-      transform.y = -(world.height/2 - (canvas.height/(2*transform.scale)));
+      // центрируем на (0,0) — центр галактики
+      const cx = canvas.width/2, cy = canvas.height/2;
+      transform.x = (cx/transform.scale);
+      transform.y = (cy/transform.scale);
       updateDbg();
     }
 
-    // --- Stars ---
+    // фоновые звезды (экранные)
     function fract(n){ return n - Math.floor(n); }
     function hash(x,y){ return fract(Math.sin(x*127.1 + y*311.7) * 43758.5453); }
     function drawScreenStars(step, alpha, size, offsetFactor){
@@ -172,11 +230,37 @@
       }
       ctx.restore();
     }
+
+    // свечение ядра (мировые координаты)
+    function drawCore(){
+      const p = worldToScreen(0,0);
+      const baseR = 900 * transform.scale;
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      // внешний ореол
+      let g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, baseR*2.2);
+      g.addColorStop(0, 'rgba(240,248,255,0.07)');
+      g.addColorStop(1, 'rgba(240,248,255,0)');
+      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(p.x, p.y, baseR*2.2, 0, Math.PI*2); ctx.fill();
+      // средний
+      g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, baseR*1.3);
+      g.addColorStop(0, 'rgba(200,230,255,0.12)');
+      g.addColorStop(1, 'rgba(200,230,255,0)');
+      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(p.x, p.y, baseR*1.3, 0, Math.PI*2); ctx.fill();
+      // внутреннее свечение
+      g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, baseR*0.6);
+      g.addColorStop(0, 'rgba(255,255,255,0.25)');
+      g.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(p.x, p.y, baseR*0.6, 0, Math.PI*2); ctx.fill();
+      ctx.restore();
+    }
+
+    // звезды в мировом пространстве
     let worldStarsFar=[], worldStarsNear=[];
     (function initWorldStars(){
       const rnd = prng(1337);
-      function gen(n){ const a=[]; for(let i=0;i<n;i++){ a.push({x:(rnd()/2147483647)*world.width, y:(rnd()/2147483647)*world.height}); } return a; }
-      worldStarsFar = gen(1400); worldStarsNear = gen(600);
+      function gen(n){ const a=[]; for(let i=0;i<n;i++){ a.push({x:(rand01(rnd)-0.5)*worldBounds.width*1.5, y:(rand01(rnd)-0.5)*worldBounds.height*1.5}); } return a; }
+      worldStarsFar = gen(1600); worldStarsNear = gen(700);
     })();
     function drawWorldStars(){
       const viewW = canvas.width/transform.scale, viewH = canvas.height/transform.scale;
@@ -201,12 +285,12 @@
       const margin = 400;
       const viewW = canvas.width/transform.scale;
       const viewH = canvas.height/transform.scale;
-      transform.x = Math.min(viewW - margin, Math.max(-world.width + margin, transform.x));
-      transform.y = Math.min(viewH - margin, Math.max(-world.height + margin, transform.y));
+      transform.x = Math.min(viewW - margin, Math.max(-worldBounds.width + margin, transform.x));
+      transform.y = Math.min(viewH - margin, Math.max(-worldBounds.height + margin, transform.y));
       updateDbg();
     }
 
-    // --- input ---
+    // --- ввод ---
     let mouseDown=false, mlx=0, mly=0;
     let mouseX = window.innerWidth/2, mouseY = window.innerHeight/2;
 
@@ -224,7 +308,7 @@
       const zoomIntensity = 0.18;
       const mouseWorld = screenToWorld(e.clientX, e.clientY);
       let newScale = transform.scale * (1 + dir*zoomIntensity);
-      newScale = Math.max(0.15, Math.min(3.0, newScale));
+      newScale = Math.max(0.12, Math.min(3.0, newScale));
       const newTx = (e.clientX / newScale) - mouseWorld.x;
       const newTy = (e.clientY / newScale) - mouseWorld.y;
       transform.scale = newScale; transform.x = newTx; transform.y = newTy; clampTransform(); draw();
@@ -232,7 +316,7 @@
     canvas.addEventListener('wheel', onWheel, {passive:false});
     window.addEventListener('wheel', onWheel, {passive:false});
 
-    // Keyboard
+    // Клавиатура
     window.addEventListener('keydown', e=>{
       const k = e.key.toLowerCase();
       const panStep = 120/transform.scale;
@@ -241,21 +325,21 @@
       else if (k==='arrowup'){ transform.y += panStep; clampTransform(); draw(); }
       else if (k==='arrowdown'){ transform.y -= panStep; clampTransform(); draw(); }
       else if (k==='z'){ const cx=innerWidth/2, cy=innerHeight/2; const mw=screenToWorld(cx, cy); let ns=Math.min(3.0, transform.scale*1.18); transform.x=(cx/ns)-mw.x; transform.y=(cy/ns)-mw.y; clampTransform(); draw(); }
-      else if (k==='x'){ const cx=innerWidth/2, cy=innerHeight/2; const mw=screenToWorld(cx, cy); let ns=Math.max(0.15, transform.scale/1.18); transform.x=(cx/ns)-mw.x; transform.y=(cy/ns)-mw.y; clampTransform(); draw(); }
+      else if (k==='x'){ const cx=innerWidth/2, cy=innerHeight/2; const mw=screenToWorld(cx, cy); let ns=Math.max(0.12, transform.scale/1.18); transform.x=(cx/ns)-mw.x; transform.y=(cy/ns)-mw.y; clampTransform(); draw(); }
       else if (k==='d'){ centerView(); draw(); }
       else if (k==='h'){ hintsVisible=!hintsVisible; setHintsVisible(hintsVisible); }
     });
 
-    // компактный HUD: мировые координаты под курсором + масштаб
+    // HUD
     function updateDbg(){
       const w = screenToWorld(mouseX, mouseY);
       dbg.textContent = `x: ${Math.round(w.x)}, y: ${Math.round(w.y)}, z: ${transform.scale.toFixed(2)}`;
     }
 
-    // выбор системы
+    // Выбор системы
     let selectedSystem = null;
     canvas.addEventListener('click', e=>{
-      if (transform.scale <= lodThreshold) return; // систем еще не видно
+      if (transform.scale <= lodThreshold) return; // систем не видно
       const mx = e.clientX, my = e.clientY;
       let hit = null, bestDist = 1e9;
       for (const s of systems){
@@ -277,6 +361,7 @@
       draw();
     });
 
+    // Рендеринг
     function drawBackground(){
       const g = ctx.createLinearGradient(0,0,0,canvas.height);
       g.addColorStop(0,'#07111a'); g.addColorStop(1,'#0c1016');
@@ -284,21 +369,27 @@
       drawScreenStars(100, 0.28, 1, 0.20);
       drawScreenStars(60,  0.35, 1.2, 0.30);
       drawWorldStars();
+      drawCore(); // свечение ядра
     }
 
     function drawSectors(){
       ctx.save();
       ctx.lineWidth = Math.max(1.5, 2.2*transform.scale);
       for (const s of sectors){
-        const p = worldToScreen(s.x, s.y);
-        const w = s.w*transform.scale, h = s.h*transform.scale;
+        const polyScreen = s.poly.map(p=>worldToScreen(p.x, p.y));
+        ctx.save();
+        ctx.beginPath();
+        ctx.moveTo(polyScreen[0].x, polyScreen[0].y);
+        for(let i=1;i<polyScreen.length;i++){ ctx.lineTo(polyScreen[i].x, polyScreen[i].y); }
+        ctx.closePath();
         ctx.fillStyle = 'rgba(40, 70, 110, 0.035)';
-        ctx.strokeStyle = 'rgba(67, 110, 168, 0.58)';
-        ctx.fillRect(p.x, p.y, w, h);
-        ctx.strokeRect(p.x, p.y, w, h);
+        ctx.strokeStyle = 'rgba(67, 110, 168, 0.65)';
+        ctx.fill(); ctx.stroke();
+        const c = worldToScreen(s.center.x, s.center.y);
         ctx.fillStyle = 'rgba(225,235,255,0.95)';
         ctx.font = `${Math.max(13, 15*transform.scale)}px sans-serif`;
-        ctx.fillText(s.name, p.x + 10, p.y + Math.max(16,18*transform.scale));
+        ctx.fillText(s.name, c.x - 34, c.y - 8);
+        ctx.restore();
       }
       ctx.restore();
     }
@@ -312,19 +403,12 @@
         ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI*2);
         ctx.fillStyle = color; ctx.shadowColor = 'rgba(0,0,0,0.4)'; ctx.shadowBlur = 4; ctx.fill();
       }
-      // выделение
       if (selectedSystem){
         const p = worldToScreen(selectedSystem.x, selectedSystem.y);
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, r+6, 0, Math.PI*2);
-        ctx.strokeStyle = 'rgba(255,255,255,0.9)';
-        ctx.lineWidth = 2;
-        ctx.stroke();
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, r+12, 0, Math.PI*2);
-        ctx.strokeStyle = 'rgba(255,255,255,0.5)';
-        ctx.lineWidth = 1.5;
-        ctx.stroke();
+        ctx.beginPath(); ctx.arc(p.x, p.y, r+6, 0, Math.PI*2);
+        ctx.strokeStyle = 'rgba(255,255,255,0.9)'; ctx.lineWidth = 2; ctx.stroke();
+        ctx.beginPath(); ctx.arc(p.x, p.y, r+12, 0, Math.PI*2);
+        ctx.strokeStyle = 'rgba(255,255,255,0.5)'; ctx.lineWidth = 1.5; ctx.stroke();
       }
       ctx.restore();
     }
