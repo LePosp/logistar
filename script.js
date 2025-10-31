@@ -1,4 +1,9 @@
-// LogiStar Map — Step 1 (Canvas 2D, pan+zoom, LOD sectors/systems)
+// LogiStar Map — Step 1 (aesthetic patch)
+// Changes:
+// 1) Starfield fills entire background (also outside sectors) with screen-space parallax layers.
+// 2) Keep world-space stars for depth (subtle).
+// 3) Sector borders are more transparent.
+
 const canvas = document.getElementById('map');
 const ctx = canvas.getContext('2d');
 const hud = document.getElementById('hud');
@@ -32,7 +37,7 @@ function screenToWorld(x,y){
 }
 
 function clampTransform(){
-  const margin = 200;
+  const margin = 400; // allow a bit more space outside world
   const viewW = canvas.width / transform.scale;
   const viewH = canvas.height / transform.scale;
   const minX = -world.width + margin;
@@ -84,58 +89,96 @@ function centerView(){
   transform.y = -(world.height/2 - canvas.height/(2*transform.scale));
 }
 
-function drawBackground(){
-  const g = ctx.createLinearGradient(0,0,0,canvas.height);
-  g.addColorStop(0,'#07111a'); g.addColorStop(1,'#0c1016');
-  ctx.fillStyle = g; ctx.fillRect(0,0,canvas.width, canvas.height);
+// --------- Starfield helpers ---------
+function fract(n){ return n - Math.floor(n); }
+function hash(x,y){ return fract(Math.sin(x*127.1 + y*311.7) * 43758.5453); }
 
-  // world-space simple starfield (parallax feel)
-  const viewW = canvas.width/transform.scale;
-  const viewH = canvas.height/transform.scale;
-  const viewX = -transform.x, viewY = -transform.y;
-
-  function prng(seed){ let s = seed % 2147483647; if(s<=0) s+=2147483646; return ()=> s = s*16807 % 2147483647; }
-  const rnd = prng(1337);
-  function* stars(n){
-    for(let i=0;i<n;i++){ 
-      const x = (rnd()/2147483647)*world.width;
-      const y = (rnd()/2147483647)*world.height;
-      yield {x,y};
-    }
-  }
+// Screen-space parallax stars (cover entire canvas always)
+function drawScreenStars(step, alpha, size, offsetFactor){
+  const cols = Math.ceil(canvas.width / step) + 2;
+  const rows = Math.ceil(canvas.height / step) + 2;
+  // tie star jitter to world translation for parallax feel
+  const offX = (transform.x * offsetFactor) % step;
+  const offY = (transform.y * offsetFactor) % step;
   ctx.save();
-  ctx.globalAlpha = 0.35;
-  let count = 0;
-  for (const s of stars(1200)){
-    if(s.x < viewX-200 || s.x > viewX+viewW+200 || s.y < viewY-200 || s.y > viewY+viewH+200) continue;
-    const p = worldToScreen(s.x, s.y);
-    ctx.fillStyle = '#d9e4ff';
-    ctx.fillRect(p.x, p.y, 1, 1);
-    if(++count>400) break;
-  }
-  ctx.globalAlpha = 0.6;
-  count = 0;
-  for (const s of stars(2200)){
-    if(s.x < viewX-200 || s.x > viewX+viewW+200 || s.y < viewY-200 || s.y > viewY+viewH+200) continue;
-    const p = worldToScreen(s.x, s.y);
-    ctx.fillStyle = '#f2f6ff';
-    ctx.fillRect(p.x, p.y, 1.2, 1.2);
-    if(++count>400) break;
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = '#dfe8ff';
+  for(let iy = -1; iy < rows; iy++){
+    for(let ix = -1; ix < cols; ix++){
+      // jitter per cell via hash
+      const jx = hash(ix + Math.floor(transform.x), iy + Math.floor(transform.y));
+      const jy = hash(ix + 17 + Math.floor(transform.x), iy + 29 + Math.floor(transform.y));
+      const x = ix*step + jx*step + offX;
+      const y = iy*step + jy*step + offY;
+      ctx.fillRect(x, y, size, size);
+    }
   }
   ctx.restore();
 }
 
+// World-space stars (only within world bbox) — subtle layer for depth
+let worldStarsFar = []; let worldStarsNear = [];
+function initWorldStars(){
+  function prng(seed){ let s = seed % 2147483647; if(s<=0) s+=2147483646; return ()=> s = s*16807 % 2147483647; }
+  const rnd = prng(1337);
+  function gen(n){
+    const arr = [];
+    for(let i=0;i<n;i++){
+      const x = (rnd()/2147483647)*world.width;
+      const y = (rnd()/2147483647)*world.height;
+      arr.push({x,y});
+    }
+    return arr;
+  }
+  worldStarsFar = gen(1400);
+  worldStarsNear = gen(600);
+}
+
+function drawWorldStars(){
+  const viewW = canvas.width/transform.scale;
+  const viewH = canvas.height/transform.scale;
+  const viewX = -transform.x, viewY = -transform.y;
+  ctx.save();
+  ctx.globalAlpha = 0.25;
+  for(const s of worldStarsFar){
+    if(s.x < viewX-200 || s.x > viewX+viewW+200 || s.y < viewY-200 || s.y > viewY+viewH+200) continue;
+    const p = worldToScreen(s.x, s.y);
+    ctx.fillStyle = '#cfe0ff'; ctx.fillRect(p.x, p.y, 1, 1);
+  }
+  ctx.globalAlpha = 0.5;
+  for(const s of worldStarsNear){
+    if(s.x < viewX-200 || s.x > viewX+viewW+200 || s.y < viewY-200 || s.y > viewY+viewH+200) continue;
+    const p = worldToScreen(s.x, s.y);
+    ctx.fillStyle = '#f2f6ff'; ctx.fillRect(p.x, p.y, 1.2, 1.2);
+  }
+  ctx.restore();
+}
+
+// --------- Drawing ---------
+function drawBackground(){
+  // gradient
+  const g = ctx.createLinearGradient(0,0,0,canvas.height);
+  g.addColorStop(0,'#07111a'); g.addColorStop(1,'#0c1016');
+  ctx.fillStyle = g; ctx.fillRect(0,0,canvas.width, canvas.height);
+  // Screen-space star layers (always cover screen, slight parallax)
+  drawScreenStars(100, 0.28, 1, 0.20);
+  drawScreenStars(60,  0.35, 1.2, 0.30);
+  // World-space subtle layer for depth
+  drawWorldStars();
+}
+
 function drawSectors(){
   ctx.save();
-  ctx.lineWidth = Math.max(1, 2.5*transform.scale);
+  ctx.lineWidth = Math.max(1, 2*transform.scale);
   sectors.forEach(s=>{
     const p = worldToScreen(s.x, s.y);
     const w = s.w*transform.scale, h = s.h*transform.scale;
-    ctx.fillStyle = 'rgba(40, 70, 110, 0.06)';
-    ctx.strokeStyle = '#27405f';
+    ctx.fillStyle = 'rgba(40, 70, 110, 0.03)';        // more transparent fill
+    ctx.strokeStyle = 'rgba(39, 64, 95, 0.38)';       // softer borders
     ctx.fillRect(p.x, p.y, w, h);
     ctx.strokeRect(p.x, p.y, w, h);
-    ctx.fillStyle = 'rgba(210,230,255,0.95)';
+    // label
+    ctx.fillStyle = 'rgba(210,230,255,0.9)';
     ctx.font = `${Math.max(12, 14*transform.scale)}px sans-serif`;
     ctx.fillText(s.name, p.x + 8, p.y + Math.max(14,16*transform.scale));
   });
@@ -180,6 +223,7 @@ async function boot(){
     world.width = s.cols * s.sectorSize;
     world.height = s.rows * s.sectorSize;
     centerView();
+    initWorldStars();
   } catch(e){
     console.error('Failed to load data:', e);
   } finally {
