@@ -3,63 +3,72 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>LogiStar — Step 2 (select + card, single-file)</title>
+  <title>LogiStar — Step 2.1 (UI: подсказки и HUD)</title>
   <style>
     html, body { margin:0; padding:0; height:100%; background:#0b0f15; color:#d7e2ff; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; overflow:hidden; }
-    #map { position:absolute; top:0; left:0; width:100%; height:100%; display:block; z-index:1; touch-action:none; }
+    #map { position:absolute; top:0; left:0; width:100%; height:100%; display:block; z-index:1; }
+    /* верхняя панель-подсказка */
     #ui  { position:absolute; top:12px; left:12px; right:12px; pointer-events:none; z-index:10; }
     .panel { pointer-events:auto; background:rgba(10,16,24,0.8); backdrop-filter: blur(4px); border:1px solid #162132; border-radius:12px; padding:12px 14px; box-shadow: 0 8px 20px rgba(0,0,0,0.3); }
     .panel h1 { margin:0 0 6px 0; font-size:16px; font-weight:600; color:#cfe3ff; }
     .row { margin:4px 0; }
     .small { font-size:12px; color:#a6b6d0; }
+    /* легенда */
     .legend { position:absolute; bottom:12px; right:12px; background:rgba(10,16,24,0.8); border:1px solid #162132; border-radius:12px; padding:8px 10px; z-index:10; }
     .legend div { font-size:12px; margin:4px 0; }
     .dot { width:10px; height:10px; border-radius:50%; display:inline-block; margin-right:6px; }
+    /* компактный HUD координат */
     #dbg { position:absolute; left:12px; bottom:12px; z-index:12; background:rgba(0,0,0,0.45); padding:6px 8px; border-radius:8px; font:12px/1.3 system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif; color:#cfe3ff; }
-    /* selection card */
-    #card { position:absolute; top:96px; right:12px; width:280px; z-index:12; display:none;
-            background:rgba(14,18,26,0.9); border:1px solid #22324a; border-radius:12px; padding:12px 12px; }
-    #card h2 { margin:0 0 8px 0; font-size:15px; color:#e8f0ff; }
-    #card .meta { font-size:13px; color:#b9c8df; line-height:1.45; }
-    #card .row { display:flex; justify-content:space-between; }
-    #card .type { font-weight:600; }
+    /* карточка выбранной системы */
+    #card { position:absolute; top:88px; right:12px; z-index:11; min-width:240px; max-width:280px;
+            background:rgba(10,16,24,0.9); border:1px solid #203049; border-radius:12px; padding:12px 14px; display:none; }
+    #card h2 { margin:0 0 8px 0; font-size:15px; color:#e6efff; }
+    #card .meta { font-size:12px; color:#a9bdd8; line-height:1.5; }
     #card .actions { margin-top:10px; display:flex; gap:8px; }
-    button { background:#1a2a3f; color:#d7e6ff; border:1px solid #26405f; border-radius:10px; padding:8px 10px; cursor:pointer; }
-    button:hover { background:#213852; }
-    .pill { display:inline-block; padding:2px 8px; border-radius:999px; font-size:12px; border:1px solid rgba(255,255,255,0.12); }
+    #card .btn { padding:6px 10px; border-radius:8px; border:1px solid #2a3d5c; background:#122033; color:#dce9ff; cursor:pointer; }
+    /* кнопка "Подсказки" */
+    #toggleHints { position:absolute; top:12px; right:12px; z-index:20; padding:8px 10px; border-radius:10px;
+                   border:1px solid #24405f; background:#0f1b2a; color:#d7e7ff; cursor:pointer; box-shadow:0 4px 14px rgba(0,0,0,0.35); }
+    #toggleHints:hover { background:#132235; }
+    /* скрытие элементов */
+    .hidden { display:none !important; }
   </style>
 </head>
 <body>
-  <div id="ui">
+  <canvas id="map"></canvas>
+
+  <!-- кнопка сворачивания подсказок и легенды -->
+  <button id="toggleHints" title="Показать/скрыть подсказки (H)">Подсказки</button>
+
+  <!-- верхняя панель с подсказками -->
+  <div id="ui" class="hidden">
     <div class="panel">
-      <h1>LogiStar — Карта (Step 2 • выбор системы)</h1>
-      <div class="row">ЛКМ — панорама • Колёсико / Z/X — зум • D — сброс • Клик — выбрать систему</div>
+      <h1>LogiStar — Карта (Step 2.1 • выбор системы)</h1>
+      <div class="row">ЛКМ — панорама • Колёсико — зум • D — сброс • Z/X — зум • ←↑→↓ — панорама • Клик — выбрать систему</div>
       <div class="row small">LOD: зум ≤ 0.7 — сектора, зум &gt; 0.7 — звёздные системы.</div>
       <div class="row small" id="hud"></div>
     </div>
   </div>
-  <div id="dbg">init…</div>
-  <div class="legend">
+
+  <!-- легенда (тоже прячется) -->
+  <div id="legend" class="legend hidden">
     <div><span class="dot" style="background:#f3b56b"></span>Добывающая</div>
     <div><span class="dot" style="background:#9be0ff"></span>Газовая</div>
     <div><span class="dot" style="background:#b9ffa4"></span>Хаб</div>
   </div>
+
+  <!-- компактный HUD координат -->
+  <div id="dbg">x: 0, y: 0, z: 0.00</div>
+
+  <!-- карточка выбранной системы -->
   <div id="card">
     <h2 id="cardTitle">Система</h2>
-    <div class="meta">
-      <div class="row"><span>ID</span><span id="cardId"></span></div>
-      <div class="row"><span>Тип</span><span id="cardType" class="type"></span></div>
-      <div class="row"><span>Сектор</span><span id="cardSector"></span></div>
-      <div class="row"><span>Координаты</span><span id="cardPos"></span></div>
-      <div class="row"><span>Дистанция до курсора</span><span id="cardDist"></span></div>
-    </div>
+    <div class="meta" id="cardMeta"></div>
     <div class="actions">
-      <button id="btnEnter">Войти в систему</button>
-      <button id="btnClose">Закрыть</button>
+      <button class="btn" id="enterBtn">Войти в систему</button>
+      <button class="btn" id="closeCard">Закрыть</button>
     </div>
   </div>
-
-  <canvas id="map"></canvas>
 
   <script>
     // ======= DATA (embedded) =======
@@ -73,12 +82,13 @@
         sid++;
       }
     }
+    // Deterministic systems (seed=42)
     function prng(seed){ let s = seed % 2147483647; if(s<=0) s+=2147483646; return ()=> s = s*16807 % 2147483647; }
     const rng = prng(42);
     const systems = [];
     let sysId = 0;
     for (const sec of sectors){
-      const count = Math.max(14, Math.min(30, Math.floor((rng()/2147483647)*8 + 20)));
+      const count = Math.max(12, Math.min(28, Math.floor((rng()/2147483647)*8 + 18))); // ~18..26
       for (let i=0;i<count;i++){
         const m = 300;
         const rx = sec.x + m + (sec.w - 2*m) * (rng()/2147483647);
@@ -94,58 +104,60 @@
     const ctx = canvas.getContext('2d');
     const hud = document.getElementById('hud');
     const dbg = document.getElementById('dbg');
+    const legend = document.getElementById('legend');
+    const ui = document.getElementById('ui');
+    const toggleHintsBtn = document.getElementById('toggleHints');
 
     const card = document.getElementById('card');
     const cardTitle = document.getElementById('cardTitle');
-    const cardId = document.getElementById('cardId');
-    const cardType = document.getElementById('cardType');
-    const cardSector = document.getElementById('cardSector');
-    const cardPos = document.getElementById('cardPos');
-    const cardDist = document.getElementById('cardDist');
-    const btnEnter = document.getElementById('btnEnter');
-    const btnClose = document.getElementById('btnClose');
-
-    // device pixel ratio for crisp rendering
-    const DPR = Math.max(1, Math.min(2, (window.devicePixelRatio||1)));
+    const cardMeta = document.getElementById('cardMeta');
+    document.getElementById('closeCard').onclick = ()=>{ selectedSystem = null; card.style.display='none'; draw(); };
+    document.getElementById('enterBtn').onclick = ()=> alert('Заглушка: входим в локальную карту системы');
 
     let world = { width: GRID.cols*SECTOR_SIZE, height: GRID.rows*SECTOR_SIZE };
     let transform = { x: 0, y: 0, scale: 0.55 };
     const lodThreshold = 0.7;
     let isReady = false;
 
-    let selected = null; // {sys, screenX, screenY, dist}
-    let mouseDown = false, mlx=0, mly=0, dragDist=0;
+    // toggle hints (panel + legend)
+    function setHintsVisible(v){
+      ui.classList.toggle('hidden', !v);
+      legend.classList.toggle('hidden', !v);
+    }
+    let hintsVisible = false; // по умолчанию скрыты
+    setHintsVisible(hintsVisible);
+    toggleHintsBtn.addEventListener('click', ()=> { hintsVisible = !hintsVisible; setHintsVisible(hintsVisible); });
+    window.addEventListener('keydown', (e)=>{ if (e.key.toLowerCase()==='h'){ hintsVisible = !hintsVisible; setHintsVisible(hintsVisible); } });
 
-    function resize(){
-      const w = innerWidth, h = innerHeight;
-      canvas.width = Math.floor(w * DPR);
-      canvas.height = Math.floor(h * DPR);
-      canvas.style.width = w + 'px';
-      canvas.style.height = h + 'px';
-      ctx.setTransform(DPR,0,0,DPR,0,0); // reset transform for DPR
+    // canvas DPI
+    function resizeCanvas(){
+      const dpr = Math.max(1, window.devicePixelRatio || 1);
+      const cssW = window.innerWidth, cssH = window.innerHeight;
+      canvas.style.width = cssW + 'px';
+      canvas.style.height = cssH + 'px';
+      canvas.width = Math.floor(cssW * dpr);
+      canvas.height = Math.floor(cssH * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       if (isReady) draw();
     }
-    addEventListener('resize', resize);
-
-    function setDbg(){ dbg.textContent = `scale=${transform.scale.toFixed(2)} tx=${transform.x.toFixed(0)} ty=${transform.y.toFixed(0)} | sectors=${sectors.length} systems=${systems.length}`; }
+    window.addEventListener('resize', resizeCanvas);
 
     function worldToScreen(x,y){ return { x:(x+transform.x)*transform.scale, y:(y+transform.y)*transform.scale }; }
     function screenToWorld(x,y){ return { x:x/transform.scale - transform.x, y:y/transform.scale - transform.y }; }
 
     function centerView(){
       transform.scale = 0.55;
-      transform.x = -(world.width/2 - (canvas.width/DPR)/(2*transform.scale));
-      transform.y = -(world.height/2 - (canvas.height/DPR)/(2*transform.scale));
-      setDbg();
+      transform.x = -(world.width/2 - (canvas.width/(2*transform.scale)));
+      transform.y = -(world.height/2 - (canvas.height/(2*transform.scale)));
+      updateDbg();
     }
 
     // --- Stars ---
     function fract(n){ return n - Math.floor(n); }
     function hash(x,y){ return fract(Math.sin(x*127.1 + y*311.7) * 43758.5453); }
     function drawScreenStars(step, alpha, size, offsetFactor){
-      const cw = canvas.width/DPR, ch = canvas.height/DPR;
-      const cols = Math.ceil(cw / step) + 2;
-      const rows = Math.ceil(ch / step) + 2;
+      const cols = Math.ceil(canvas.width / step) + 2;
+      const rows = Math.ceil(canvas.height / step) + 2;
       const offX = (transform.x * offsetFactor) % step;
       const offY = (transform.y * offsetFactor) % step;
       ctx.save(); ctx.globalAlpha = alpha; ctx.fillStyle = '#dfe8ff';
@@ -167,7 +179,7 @@
       worldStarsFar = gen(1400); worldStarsNear = gen(600);
     })();
     function drawWorldStars(){
-      const viewW = (canvas.width/DPR)/transform.scale, viewH = (canvas.height/DPR)/transform.scale;
+      const viewW = canvas.width/transform.scale, viewH = canvas.height/transform.scale;
       const viewX = -transform.x, viewY = -transform.y;
       ctx.save();
       ctx.globalAlpha = 0.25;
@@ -187,30 +199,25 @@
 
     function clampTransform(){
       const margin = 400;
-      const viewW = (canvas.width/DPR)/transform.scale;
-      const viewH = (canvas.height/DPR)/transform.scale;
+      const viewW = canvas.width/transform.scale;
+      const viewH = canvas.height/transform.scale;
       transform.x = Math.min(viewW - margin, Math.max(-world.width + margin, transform.x));
       transform.y = Math.min(viewH - margin, Math.max(-world.height + margin, transform.y));
-      setDbg();
+      updateDbg();
     }
 
-    canvas.addEventListener('mousedown', e=>{ mouseDown=true; mlx=e.clientX; mly=e.clientY; dragDist=0; });
-    addEventListener('mouseup', e=>{
-      if(mouseDown){
-        // click if not dragged
-        if(dragDist < 5){
-          handleClick(e.clientX, e.clientY);
-        }
-      }
-      mouseDown=false;
-    });
-    addEventListener('mousemove', e=>{
-      if(!mouseDown) return;
+    // --- input ---
+    let mouseDown=false, mlx=0, mly=0;
+    let mouseX = window.innerWidth/2, mouseY = window.innerHeight/2;
+
+    canvas.addEventListener('mousedown', e=>{ mouseDown=true; mlx=e.clientX; mly=e.clientY; });
+    window.addEventListener('mouseup', ()=>{ mouseDown=false; });
+    window.addEventListener('mousemove', e=>{
+      mouseX = e.clientX; mouseY = e.clientY;
+      if(!mouseDown) { updateDbg(); return; }
       const dx=e.clientX-mlx, dy=e.clientY-mly; mlx=e.clientX; mly=e.clientY;
-      dragDist += Math.hypot(dx,dy);
       transform.x += dx/transform.scale; transform.y += dy/transform.scale; clampTransform(); draw();
     }, {passive:false});
-
     function onWheel(e){
       e.preventDefault();
       const dir = e.deltaY < 0 ? 1 : -1;
@@ -223,27 +230,57 @@
       transform.scale = newScale; transform.x = newTx; transform.y = newTy; clampTransform(); draw();
     }
     canvas.addEventListener('wheel', onWheel, {passive:false});
-    addEventListener('wheel', onWheel, {passive:false});
+    window.addEventListener('wheel', onWheel, {passive:false});
 
-    // Keyboard fallback: Z/X zoom, arrows pan, D reset
-    addEventListener('keydown', e=>{
+    // Keyboard
+    window.addEventListener('keydown', e=>{
       const k = e.key.toLowerCase();
       const panStep = 120/transform.scale;
       if (k==='arrowleft'){ transform.x += panStep; clampTransform(); draw(); }
       else if (k==='arrowright'){ transform.x -= panStep; clampTransform(); draw(); }
       else if (k==='arrowup'){ transform.y += panStep; clampTransform(); draw(); }
       else if (k==='arrowdown'){ transform.y -= panStep; clampTransform(); draw(); }
-      else if (k==='z'){ const cx = innerWidth/2, cy = innerHeight/2; const mouseWorld = screenToWorld(cx, cy); let newScale = Math.min(3.0, transform.scale * 1.18); transform.x = (cx / newScale) - mouseWorld.x; transform.y = (cy / newScale) - mouseWorld.y; clampTransform(); draw(); }
-      else if (k==='x'){ const cx = innerWidth/2, cy = innerHeight/2; const mouseWorld = screenToWorld(cx, cy); let newScale = Math.max(0.15, transform.scale / 1.18); transform.x = (cx / newScale) - mouseWorld.x; transform.y = (cy / newScale) - mouseWorld.y; clampTransform(); draw(); }
+      else if (k==='z'){ const cx=innerWidth/2, cy=innerHeight/2; const mw=screenToWorld(cx, cy); let ns=Math.min(3.0, transform.scale*1.18); transform.x=(cx/ns)-mw.x; transform.y=(cy/ns)-mw.y; clampTransform(); draw(); }
+      else if (k==='x'){ const cx=innerWidth/2, cy=innerHeight/2; const mw=screenToWorld(cx, cy); let ns=Math.max(0.15, transform.scale/1.18); transform.x=(cx/ns)-mw.x; transform.y=(cy/ns)-mw.y; clampTransform(); draw(); }
       else if (k==='d'){ centerView(); draw(); }
-      else if (k==='escape'){ selected = null; card.style.display='none'; draw(); }
+      else if (k==='h'){ hintsVisible=!hintsVisible; setHintsVisible(hintsVisible); }
+    });
+
+    // компактный HUD: мировые координаты под курсором + масштаб
+    function updateDbg(){
+      const w = screenToWorld(mouseX, mouseY);
+      dbg.textContent = `x: ${Math.round(w.x)}, y: ${Math.round(w.y)}, z: ${transform.scale.toFixed(2)}`;
+    }
+
+    // выбор системы
+    let selectedSystem = null;
+    canvas.addEventListener('click', e=>{
+      if (transform.scale <= lodThreshold) return; // систем еще не видно
+      const mx = e.clientX, my = e.clientY;
+      let hit = null, bestDist = 1e9;
+      for (const s of systems){
+        const p = worldToScreen(s.x, s.y);
+        const dx = p.x - mx, dy = p.y - my;
+        const d2 = dx*dx + dy*dy;
+        const r = Math.max(5, 6*transform.scale);
+        if (d2 <= (r*r) && d2 < bestDist){ bestDist = d2; hit = s; }
+      }
+      selectedSystem = hit;
+      if (hit){
+        cardTitle.textContent = hit.name;
+        const sec = sectors.find(ss=>ss.id===hit.sectorId);
+        cardMeta.innerHTML = `Тип: <b>${hit.type}</b><br>Сектор: <b>${sec ? sec.name : hit.sectorId}</b><br>Координаты: <b>${Math.round(hit.x)}, ${Math.round(hit.y)}</b>`;
+        card.style.display = 'block';
+      } else {
+        card.style.display = 'none';
+      }
+      draw();
     });
 
     function drawBackground(){
-      const cw = canvas.width/DPR, ch = canvas.height/DPR;
-      const g = ctx.createLinearGradient(0,0,0,ch);
+      const g = ctx.createLinearGradient(0,0,0,canvas.height);
       g.addColorStop(0,'#07111a'); g.addColorStop(1,'#0c1016');
-      ctx.fillStyle = g; ctx.fillRect(0,0,cw, ch);
+      ctx.fillStyle = g; ctx.fillRect(0,0,canvas.width, canvas.height);
       drawScreenStars(100, 0.28, 1, 0.20);
       drawScreenStars(60,  0.35, 1.2, 0.30);
       drawWorldStars();
@@ -274,75 +311,34 @@
         let color = sys.type==='mining' ? '#f3b56b' : (sys.type==='gas' ? '#9be0ff' : '#b9ffa4');
         ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI*2);
         ctx.fillStyle = color; ctx.shadowColor = 'rgba(0,0,0,0.4)'; ctx.shadowBlur = 4; ctx.fill();
-
-        // selection ring
-        if(selected && selected.sys === sys){
-          ctx.lineWidth = 2;
-          ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
-          ctx.beginPath(); ctx.arc(p.x, p.y, r+6, 0, Math.PI*2); ctx.stroke();
-          ctx.strokeStyle = 'rgba(255, 239, 169, 0.9)';
-          ctx.beginPath(); ctx.arc(p.x, p.y, r+10, 0, Math.PI*2); ctx.stroke();
-        }
-
-        if(transform.scale > 1.0){
-          ctx.shadowBlur = 0;
-          ctx.fillStyle = 'rgba(215,226,255,0.92)';
-          ctx.font = `${Math.max(10, 12*transform.scale)}px sans-serif`;
-          ctx.fillText(sys.name, p.x + 6*r, p.y - 2);
-        }
+      }
+      // выделение
+      if (selectedSystem){
+        const p = worldToScreen(selectedSystem.x, selectedSystem.y);
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, r+6, 0, Math.PI*2);
+        ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, r+12, 0, Math.PI*2);
+        ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
       }
       ctx.restore();
     }
 
-    function handleClick(sx, sy){
-      // Only when systems are visible
-      if(transform.scale <= lodThreshold){ return; }
-      const worldPt = screenToWorld(sx, sy);
-      // find nearest system within threshold (screen space)
-      const threshold = 14 + 6*transform.scale;
-      let best = null, bestDist = Infinity;
-      for(const sys of systems){
-        const p = worldToScreen(sys.x, sys.y);
-        const d = Math.hypot(p.x - sx, p.y - sy);
-        if(d < threshold && d < bestDist){
-          best = sys; bestDist = d;
-        }
-      }
-      if(best){
-        selected = { sys: best };
-        // update card UI
-        cardTitle.textContent = best.name;
-        cardId.textContent = best.id;
-        cardType.textContent = (best.type==='mining'?'Добывающая':(best.type==='gas'?'Газовая':'Хаб'));
-        cardSector.textContent = best.sectorId;
-        cardPos.textContent = `${best.x.toFixed(0)}, ${best.y.toFixed(0)}`;
-        cardDist.textContent = `${bestDist.toFixed(1)} px`;
-        card.style.display = 'block';
-        draw();
-      } else {
-        // click пустого места — снять выделение
-        selected = null;
-        card.style.display = 'none';
-        draw();
-      }
-    }
-
-    btnEnter.addEventListener('click', ()=>{
-      if(!selected) return;
-      alert('Переход в систему (заготовка): ' + selected.sys.name + '\\nДальше будет локальная карта узлов/маршрутов.');
-    });
-    btnClose.addEventListener('click', ()=>{ selected=null; card.style.display='none'; draw(); });
-
     function draw(){
       drawBackground();
-      hud.textContent = `Зум: ${transform.scale.toFixed(2)} | смещение: (${transform.x.toFixed(0)}, ${transform.y.toFixed(0)}) | сектора: ${sectors.length} | системы: ${systems.length}`;
+      if (hud) hud.textContent = `Зум: ${transform.scale.toFixed(2)} | смещение: (${transform.x.toFixed(0)}, ${transform.y.toFixed(0)}) | сектора: ${sectors.length} | системы: ${systems.length}`;
       drawSectors();
       if(transform.scale > lodThreshold) drawSystems();
-      setDbg();
+      updateDbg();
     }
 
     // init
-    resize();
+    resizeCanvas();
     centerView();
     isReady = true;
     draw();
