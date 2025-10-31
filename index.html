@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>LogiStar — Step 1 (single-file v5)</title>
+  <title>LogiStar — Step 1 (single-file v6)</title>
   <style>
     html, body { margin:0; padding:0; height:100%; background:#0b0f15; color:#d7e2ff; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; overflow:hidden; }
     #map { position:absolute; top:0; left:0; width:100%; height:100%; display:block; z-index:1; }
@@ -15,14 +15,15 @@
     .legend { position:absolute; bottom:12px; right:12px; background:rgba(10,16,24,0.8); border:1px solid #162132; border-radius:12px; padding:8px 10px; z-index:10; }
     .legend div { font-size:12px; margin:4px 0; }
     .dot { width:10px; height:10px; border-radius:50%; display:inline-block; margin-right:6px; }
-    #hud { opacity:0.85 }
+    #hud { opacity:0.9 }
+    #dbg { position:absolute; left:12px; bottom:12px; z-index:12; background:rgba(0,0,0,0.45); padding:6px 8px; border-radius:8px; font:12px/1.3 system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif; color:#cfe3ff; }
   </style>
 </head>
 <body>
   <div id="ui">
     <div class="panel">
-      <h1>LogiStar — Карта (Step 1 • single‑file v5)</h1>
-      <div class="row">ЛКМ — панорама • Колёсико — зум вокруг курсора • D — сброс вида</div>
+      <h1>LogiStar — Карта (Step 1 • single‑file v6)</h1>
+      <div class="row">ЛКМ — панорама • Колёсико — зум • D — сброс • Z/X — зум • ←↑→↓ — панорама</div>
       <div class="row small">LOD: зум ≤ 0.7 — сектора, зум &gt; 0.7 — звёздные системы.</div>
       <div class="row small" id="hud"></div>
     </div>
@@ -32,6 +33,7 @@
     <div><span class="dot" style="background:#9be0ff"></span>Газовая</div>
     <div><span class="dot" style="background:#b9ffa4"></span>Хаб</div>
   </div>
+  <div id="dbg">init…</div>
   <canvas id="map"></canvas>
 
   <script>
@@ -67,6 +69,7 @@
     const canvas = document.getElementById('map');
     const ctx = canvas.getContext('2d');
     const hud = document.getElementById('hud');
+    const dbg = document.getElementById('dbg');
 
     let world = { width: GRID.cols*SECTOR_SIZE, height: GRID.rows*SECTOR_SIZE };
     let transform = { x: 0, y: 0, scale: 0.55 };
@@ -80,6 +83,8 @@
     addEventListener('resize', resize);
     resize();
 
+    function setDbg(){ dbg.textContent = `scale=${transform.scale.toFixed(2)} tx=${transform.x.toFixed(0)} ty=${transform.y.toFixed(0)} | sectors=${sectors.length} systems=${systems.length}`; }
+
     function worldToScreen(x,y){ return { x:(x+transform.x)*transform.scale, y:(y+transform.y)*transform.scale }; }
     function screenToWorld(x,y){ return { x:x/transform.scale - transform.x, y:y/transform.scale - transform.y }; }
 
@@ -87,6 +92,7 @@
       transform.scale = 0.55;
       transform.x = -(world.width/2 - canvas.width/(2*transform.scale));
       transform.y = -(world.height/2 - canvas.height/(2*transform.scale));
+      setDbg();
     }
     centerView();
 
@@ -141,6 +147,7 @@
       const viewH = canvas.height/transform.scale;
       transform.x = Math.min(viewW - margin, Math.max(-world.width + margin, transform.x));
       transform.y = Math.min(viewH - margin, Math.max(-world.height + margin, transform.y));
+      setDbg();
     }
 
     let mouseDown=false, mlx=0, mly=0;
@@ -164,7 +171,31 @@
     }
     canvas.addEventListener('wheel', onWheel, {passive:false});
     addEventListener('wheel', onWheel, {passive:false});
-    addEventListener('keydown', e=>{ if(e.key.toLowerCase()==='d'){ centerView(); draw(); } });
+
+    // Keyboard fallback: Z/X zoom, arrows pan, D reset
+    addEventListener('keydown', e=>{
+      const k = e.key.toLowerCase();
+      const panStep = 120/transform.scale;
+      if (k==='arrowleft'){ transform.x += panStep; clampTransform(); draw(); }
+      else if (k==='arrowright'){ transform.x -= panStep; clampTransform(); draw(); }
+      else if (k==='arrowup'){ transform.y += panStep; clampTransform(); draw(); }
+      else if (k==='arrowdown'){ transform.y -= panStep; clampTransform(); draw(); }
+      else if (k==='z'){ // zoom in
+        const cx = innerWidth/2, cy = innerHeight/2;
+        const mouseWorld = screenToWorld(cx, cy);
+        let newScale = Math.min(3.0, transform.scale * 1.18);
+        transform.x = (cx / newScale) - mouseWorld.x;
+        transform.y = (cy / newScale) - mouseWorld.y;
+        clampTransform(); draw();
+      } else if (k==='x'){ // zoom out
+        const cx = innerWidth/2, cy = innerHeight/2;
+        const mouseWorld = screenToWorld(cx, cy);
+        let newScale = Math.max(0.15, transform.scale / 1.18);
+        transform.x = (cx / newScale) - mouseWorld.x;
+        transform.y = (cy / newScale) - mouseWorld.y;
+        clampTransform(); draw();
+      } else if (k==='d'){ centerView(); draw(); }
+    });
 
     function drawBackground(){
       const g = ctx.createLinearGradient(0,0,0,canvas.height);
@@ -177,24 +208,24 @@
 
     function drawSectors(){
       ctx.save();
-      ctx.lineWidth = Math.max(1, 2*transform.scale);
+      ctx.lineWidth = Math.max(1.5, 2.2*transform.scale); // толще
       for (const s of sectors){
         const p = worldToScreen(s.x, s.y);
         const w = s.w*transform.scale, h = s.h*transform.scale;
-        ctx.fillStyle = 'rgba(40, 70, 110, 0.03)';
-        ctx.strokeStyle = 'rgba(39, 64, 95, 0.30)';
+        ctx.fillStyle = 'rgba(40, 70, 110, 0.035)';
+        ctx.strokeStyle = 'rgba(67, 110, 168, 0.58)'; // заметнее
         ctx.fillRect(p.x, p.y, w, h);
         ctx.strokeRect(p.x, p.y, w, h);
-        ctx.fillStyle = 'rgba(210,230,255,0.86)';
-        ctx.font = `${Math.max(12, 14*transform.scale)}px sans-serif`;
-        ctx.fillText(s.name, p.x + 8, p.y + Math.max(14,16*transform.scale));
+        ctx.fillStyle = 'rgba(225,235,255,0.95)';
+        ctx.font = `${Math.max(13, 15*transform.scale)}px sans-serif`;
+        ctx.fillText(s.name, p.x + 10, p.y + Math.max(16,18*transform.scale));
       }
       ctx.restore();
     }
 
     function drawSystems(){
       ctx.save();
-      const r = Math.max(3, 4.5*transform.scale);
+      const r = Math.max(3.2, 4.8*transform.scale);
       for(const sys of systems){
         const p = worldToScreen(sys.x, sys.y);
         let color = sys.type==='mining' ? '#f3b56b' : (sys.type==='gas' ? '#9be0ff' : '#b9ffa4');
@@ -212,9 +243,10 @@
 
     function draw(){
       drawBackground();
-      hud.textContent = `v5 | Зум: ${transform.scale.toFixed(2)} | смещение: (${transform.x.toFixed(0)}, ${transform.y.toFixed(0)}) | сектора: ${sectors.length} | системы: ${systems.length}`;
+      hud.textContent = `v6 | Зум: ${transform.scale.toFixed(2)} | смещение: (${transform.x.toFixed(0)}, ${transform.y.toFixed(0)}) | сектора: ${sectors.length} | системы: ${systems.length}`;
       drawSectors();
       if(transform.scale > lodThreshold) drawSystems();
+      setDbg();
     }
     draw();
   </script>
