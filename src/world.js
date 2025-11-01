@@ -1,30 +1,29 @@
-import * as cfg from './config.js';
-import { prng, rand01 } from './rng.js';
-import { randomPointInPoly } from './geometry.js';
-import { buildVoronoiSectors } from './voronoi.js';
 
-export function buildSites(){
+import { R1,R2,N1,N2,BOUND,SEED,SYS } from './config.js';
+import { prng, r01 } from './rng.js';
+import { voronoi } from './voronoi.js';
+import { randIn } from './geometry.js';
+export function sites(){
   const a=[];
-  for(let i=0;i<cfg.RING1_COUNT;i++){ const t=(i/cfg.RING1_COUNT)*Math.PI*2; a.push({x:Math.cos(t)*cfg.RING1_R,y:Math.sin(t)*cfg.RING1_R,id:i}); }
-  for(let i=0;i<cfg.RING2_COUNT;i++){ const t=(i/cfg.RING2_COUNT)*Math.PI*2 + Math.PI/cfg.RING2_COUNT; a.push({x:Math.cos(t)*cfg.RING2_R,y:Math.sin(t)*cfg.RING2_R,id:cfg.RING1_COUNT+i}); }
+  for(let i=0;i<N1;i++){ const t=i/N1*Math.PI*2; a.push({x:Math.cos(t)*R1,y:Math.sin(t)*R1}); }
+  for(let i=0;i<N2;i++){ const t=i/N2*Math.PI*2+Math.PI/N2; a.push({x:Math.cos(t)*R2,y:Math.sin(t)*R2}); }
   return a;
 }
-export function buildBorder(segs=96){ const p=[]; for(let i=0;i<segs;i++){const t=(i/segs)*Math.PI*2; p.push({x:Math.cos(t)*cfg.BOUND_R,y:Math.sin(t)*cfg.BOUND_R});} return p; }
-export function buildSectors(sites,border){ return buildVoronoiSectors(sites,border); }
-export function boundsOfSectors(secs){
+export function border(n=96){ const p=[]; for(let i=0;i<n;i++){const t=i/n*Math.PI*2; p.push({x:Math.cos(t)*BOUND,y:Math.sin(t)*BOUND});} return p; }
+export function sectors(){ return voronoi(sites(), border()); }
+export function bounds(secs){
   let minX=1e9,minY=1e9,maxX=-1e9,maxY=-1e9;
-  for(const s of secs){ for(const v of s.poly){ if(v.x<minX)minX=v.x; if(v.y<minY)minY=v.y; if(v.x>maxX)maxX=v.x; if(v.y>maxY)maxY=v.y; } }
-  return {minX,minY,maxX,maxY,width:maxX-minX,height:maxY-minY,cx:(minX+maxX)/2,cy:(minY+maxY)/2};
+  for(const s of secs) for(const v of s.poly){ minX=Math.min(minX,v.x); minY=Math.min(minY,v.y); maxX=Math.max(maxX,v.x); maxY=Math.max(maxY,v.y); }
+  return {minX,minY,maxX,maxY};
 }
-export function buildSystems(sectors){
-  const rng=prng(cfg.SEED); const out=[]; let id=0;
-  for(const sec of sectors){
-    const min=cfg.SYSTEMS_PER_SECTOR[0], max=cfg.SYSTEMS_PER_SECTOR[1];
-    const count=min+Math.floor(rand01(rng)*(max-min+1));
-    for(let i=0;i<count;i++){
-      const p=randomPointInPoly(sec.poly, rng, rand01); const t=rand01(rng);
-      const type=t<0.34?'mining':(t<0.67?'gas':'hub');
-      out.push({id:`SYS${id++}`,name:`Система ${id}`,sectorId:sec.id,x:p.x,y:p.y,type});
+export function systems(secs){
+  const rnd=prng(SEED); const out=[]; let id=0;
+  for(const s of secs){
+    const cnt=SYS[0]+Math.floor(r01(rnd)*(SYS[1]-SYS[0]+1));
+    for(let i=0;i<cnt;i++){
+      const p=randIn(s.poly,rnd,r01);
+      const t=r01(rnd); const type=t<.34?'mining':(t<.67?'gas':'hub');
+      out.push({id:'SYS'+id++,name:'Система '+id,sector:s.id,x:p.x,y:p.y,type});
     }
   }
   return out;
