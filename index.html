@@ -1,28 +1,33 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>LogiStar — Step 3 (Voronoi + ядро + фикс камеры)</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>LogiStar — Voronoi (modular)</title>
   <style>
-    html, body { margin:0; padding:0; height:100%; background:#0b0f15; color:#d7e2ff; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; overflow:hidden; }
-    #map { position:absolute; top:0; left:0; width:100%; height:100%; display:block; z-index:1; }
+    html, body { margin:0; padding:0; height:100%; background:#0b0f15; color:#d7e2ff;
+                 font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; overflow:hidden; }
+    #map { position:absolute; inset:0; width:100%; height:100%; display:block; z-index:1; }
 
     #toggleHints { position:absolute; top:12px; right:12px; z-index:20; padding:8px 10px; border-radius:10px;
                    border:1px solid #24405f; background:#0f1b2a; color:#d7e7ff; cursor:pointer; box-shadow:0 4px 14px rgba(0,0,0,0.35); }
     #toggleHints:hover { background:#132235; }
+    .hidden { display:none !important; }
 
     #ui  { position:absolute; top:12px; left:12px; right:12px; pointer-events:none; z-index:10; }
-    .panel { pointer-events:auto; background:rgba(10,16,24,0.8); backdrop-filter: blur(4px); border:1px solid #162132; border-radius:12px; padding:12px 14px; box-shadow: 0 8px 20px rgba(0,0,0,0.3); }
+    .panel { pointer-events:auto; background:rgba(10,16,24,0.8); backdrop-filter: blur(4px); border:1px solid #162132;
+             border-radius:12px; padding:12px 14px; box-shadow: 0 8px 20px rgba(0,0,0,0.3); }
     .panel h1 { margin:0 0 6px 0; font-size:16px; font-weight:600; color:#cfe3ff; }
     .row { margin:4px 0; }
     .small { font-size:12px; color:#a6b6d0; }
 
-    .legend { position:absolute; bottom:12px; right:12px; background:rgba(10,16,24,0.8); border:1px solid #162132; border-radius:12px; padding:8px 10px; z-index:10; }
+    .legend { position:absolute; bottom:12px; right:12px; background:rgba(10,16,24,0.8); border:1px solid #162132;
+              border-radius:12px; padding:8px 10px; z-index:10; }
     .legend div { font-size:12px; margin:4px 0; }
     .dot { width:10px; height:10px; border-radius:50%; display:inline-block; margin-right:6px; }
 
-    #dbg { position:absolute; left:12px; bottom:12px; z-index:12; background:rgba(0,0,0,0.45); padding:6px 8px; border-radius:8px; font:12px/1.3 system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif; color:#cfe3ff; }
+    #dbg { position:absolute; left:12px; bottom:12px; z-index:12; background:rgba(0,0,0,0.45); padding:6px 8px;
+           border-radius:8px; font:12px/1.3 system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif; color:#cfe3ff; }
 
     #card { position:absolute; top:88px; right:12px; z-index:11; min-width:240px; max-width:320px;
             background:rgba(10,16,24,0.9); border:1px solid #203049; border-radius:12px; padding:12px 14px; display:none; }
@@ -30,8 +35,6 @@
     #card .meta { font-size:12px; color:#a9bdd8; line-height:1.5; }
     #card .actions { margin-top:10px; display:flex; gap:8px; }
     #card .btn { padding:6px 10px; border-radius:8px; border:1px solid #2a3d5c; background:#122033; color:#dce9ff; cursor:pointer; }
-
-    .hidden { display:none !important; }
   </style>
 </head>
 <body>
@@ -40,7 +43,7 @@
 
   <div id="ui" class="hidden">
     <div class="panel">
-      <h1>LogiStar — Карта (Step 3 • Voronoi)</h1>
+      <h1>LogiStar — Карта (Voronoi)</h1>
       <div class="row">ЛКМ — панорама • Колёсико — зум • D — сброс • Z/X — зум • ←↑→↓ — панорама • Клик — выбрать систему</div>
       <div class="row small">Сектора — ячейки Вороного вокруг ядра, без перекрытий; ядро светится. LOD: зум ≤ 0.7 — сектора, зум &gt; 0.7 — звёздные системы.</div>
       <div class="row small" id="hud"></div>
@@ -64,400 +67,6 @@
     </div>
   </div>
 
-  <script>
-    // ---------- PRNG ----------
-    function prng(seed){ let s = seed % 2147483647; if(s<=0) s+=2147483646; return ()=> s = s*16807 % 2147483647; }
-    function rand01(r){ return r()/2147483647; }
-    const rng = prng(42);
-
-    // ---------- Сайты (центры) в двух кольцах ----------
-    const RING1_R = 3200, RING2_R = 6200;
-    const RING1_COUNT = 4,    RING2_COUNT = 8;
-
-    const sites = [];
-    for (let i=0;i<RING1_COUNT;i++){
-      const a = (i/RING1_COUNT)*Math.PI*2;
-      sites.push({ x: Math.cos(a)*RING1_R, y: Math.sin(a)*RING1_R, id:i });
-    }
-    for (let i=0;i<RING2_COUNT;i++){
-      const a = (i/RING2_COUNT)*Math.PI*2 + (Math.PI/RING2_COUNT);
-      sites.push({ x: Math.cos(a)*RING2_R, y: Math.sin(a)*RING2_R, id:RING1_COUNT+i });
-    }
-
-    // ---------- Вороной через отсечение полуплоскостями ----------
-    const dot = (p,q)=> p.x*q.x + p.y*q.y;
-
-    function clipPolyHalfPlane(poly, n, c){
-      if (poly.length===0) return poly;
-      const out = [];
-      for (let i=0;i<poly.length;i++){
-        const a = poly[i];
-        const b = poly[(i+1)%poly.length];
-        const fa = (a.x*n.x + a.y*n.y) - c;
-        const fb = (b.x*n.x + b.y*n.y) - c;
-        const ain = fa <= 1e-9, bin = fb <= 1e-9;
-
-        if (ain && bin){
-          out.push(b);
-        } else if (ain && !bin){
-          const d = { x:b.x-a.x, y:b.y-a.y };
-          const t = (c - (a.x*n.x + a.y*n.y)) / (d.x*n.x + d.y*n.y);
-          out.push({ x:a.x + d.x*t, y:a.y + d.y*t });
-        } else if (!ain && bin){
-          const d = { x:b.x-a.x, y:b.y-a.y };
-          const t = (c - (a.x*n.x + a.y*n.y)) / (d.x*n.x + d.y*n.y);
-          out.push({ x:a.x + d.x*t, y:a.y + d.y*t });
-          out.push(b);
-        }
-      }
-      return out;
-    }
-
-    // большая круглая «граница галактики» для обрезки
-    const BOUND_R = RING2_R * 1.5;
-    function makeCirclePoly(r=BOUND_R, segs=96){
-      const poly = [];
-      for (let i=0;i<segs;i++){
-        const t = (i/segs)*Math.PI*2;
-        poly.push({ x: Math.cos(t)*r, y: Math.sin(t)*r });
-      }
-      return poly;
-    }
-    const galaxyBorder = makeCirclePoly(BOUND_R, 96);
-
-    // строим ячейки
-    const sectors = [];
-    for (let i=0;i<sites.length;i++){
-      const A = sites[i];
-      let cell = galaxyBorder.slice();
-      for (let j=0;j<sites.length;j++){
-        if (i===j) continue;
-        const B = sites[j];
-        const n = { x: B.x - A.x, y: B.y - A.y };
-        const c = (dot(B,B) - dot(A,A)) * 0.5;
-        cell = clipPolyHalfPlane(cell, n, c);
-        if (!cell.length) break;
-      }
-      if (cell.length){
-        let cx=0, cy=0; for(const v of cell){ cx+=v.x; cy+=v.y; } cx/=cell.length; cy/=cell.length;
-        sectors.push({ id:`S${i}`, name:`Сектор ${i}`, poly:cell, center:{x:cx,y:cy} });
-      }
-    }
-
-    // границы мира
-    function boundsOfSectors(secs){
-      let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
-      for (const s of secs){
-        for (const v of s.poly){
-          if(v.x<minX)minX=v.x; if(v.y<minY)minY=v.y;
-          if(v.x>maxX)maxX=v.x; if(v.y>maxY)maxY=v.y;
-        }
-      }
-      return {minX,minY,maxX,maxY, width:maxX-minX, height:maxY-minY, cx:(minX+maxX)/2, cy:(minY+maxY)/2};
-    }
-    const worldBounds = boundsOfSectors(sectors);
-
-    // попадание и случайная точка в полигоне
-    function pointInPoly(pt, poly){
-      let c=false;
-      for(let i=0,j=poly.length-1;i<poly.length;j=i++){
-        const xi=poly[i].x, yi=poly[i].y, xj=poly[j].x, yj=poly[j].y;
-        const inter = ((yi>pt.y)!=(yj>pt.y)) && (pt.x < (xj-xi)*(pt.y-yi)/(yj-yi+1e-9) + xi);
-        if (inter) c=!c;
-      }
-      return c;
-    }
-    function randomPointInPoly(poly, rnd){
-      let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=Infinity*-1;
-      for (const v of poly){ 
-        if(v.x<minX)minX=v.x; 
-        if(v.y<minY)minY=v.y; 
-        if(v.x>maxX)maxX=v.x; 
-        if(v.y>maxY)maxY=v.y; 
-      }
-      for(let k=0;k<2000;k++){
-        const x=minX + rand01(rnd)*(maxX-minX);
-        const y=minY + rand01(rnd)*(maxY-minY);
-        if (pointInPoly({x,y}, poly)) return {x,y};
-      }
-      return { x:(minX+maxX)/2, y:(minY+maxY)/2 };
-    }
-
-    // системы
-    const systems = [];
-    let sysId=0;
-    for (const sec of sectors){
-      const count = 12 + Math.floor(rand01(rng)*14); // 12..25
-      for (let i=0;i<count;i++){
-        const p = randomPointInPoly(sec.poly, rng);
-        const t = rand01(rng);
-        const type = t<0.34 ? 'mining' : (t<0.67 ? 'gas' : 'hub');
-        systems.push({ id:`SYS${sysId++}`, name:`Система ${sysId}`, sectorId: sec.id, x:p.x, y:p.y, type });
-      }
-    }
-
-    // ---------- Рендер/ввод ----------
-    const canvas = document.getElementById('map');
-    const ctx = canvas.getContext('2d');
-    const hud = document.getElementById('hud');
-    const dbg = document.getElementById('dbg');
-    const legend = document.getElementById('legend');
-    const ui = document.getElementById('ui');
-    const toggleHintsBtn = document.getElementById('toggleHints');
-    const card = document.getElementById('card');
-    const cardTitle = document.getElementById('cardTitle');
-    const cardMeta = document.getElementById('cardMeta');
-    document.getElementById('closeCard').onclick = ()=>{ selectedSystem = null; card.style.display='none'; draw(); };
-    document.getElementById('enterBtn').onclick = ()=> alert('Заглушка: входим в локальную карту системы');
-
-    let transform = { x: 0, y: 0, scale: 0.28 };
-    const lodThreshold = 0.7;
-    let isReady = false;
-
-    function setHintsVisible(v){ ui.classList.toggle('hidden', !v); legend.classList.toggle('hidden', !v); }
-    let hintsVisible = false; setHintsVisible(hintsVisible);
-    toggleHintsBtn.addEventListener('click', ()=> { hintsVisible = !hintsVisible; setHintsVisible(hintsVisible); });
-    window.addEventListener('keydown', (e)=>{ if (e.key.toLowerCase()==='h'){ hintsVisible = !hintsVisible; setHintsVisible(hintsVisible); } });
-
-    function resizeCanvas(){
-      const dpr = Math.max(1, window.devicePixelRatio || 1);
-      const cssW = window.innerWidth, cssH = window.innerHeight;
-      canvas.style.width = cssW + 'px';
-      canvas.style.height = cssH + 'px';
-      canvas.width = Math.floor(cssW * dpr);
-      canvas.height = Math.floor(cssH * dpr);
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      if(isReady) draw();
-    }
-    window.addEventListener('resize', resizeCanvas);
-
-    function worldToScreen(x,y){ return { x:(x+transform.x)*transform.scale, y:(y+transform.y)*transform.scale }; }
-    function screenToWorld(x,y){ return { x:x/transform.scale - transform.x, y:y/transform.scale - transform.y }; }
-
-    function centerView(){
-      const cx = canvas.width/2, cy = canvas.height/2;
-      transform.x = (cx/transform.scale);
-      transform.y = (cy/transform.scale);
-      updateDbg();
-    }
-
-    // фоновые звезды: экранные и мировые
-    function fract(n){ return n - Math.floor(n); }
-    function hash(x,y){ return fract(Math.sin(x*127.1 + y*311.7) * 43758.5453); }
-    function drawScreenStars(step, alpha, size, offsetFactor){
-      const cols = Math.ceil(canvas.width / step) + 2;
-      const rows = Math.ceil(canvas.height / step) + 2;
-      const offX = (transform.x * offsetFactor) % step;
-      const offY = (transform.y * offsetFactor) % step;
-      ctx.save(); ctx.globalAlpha = alpha; ctx.fillStyle = '#dfe8ff';
-      for(let iy=-1; iy<rows; iy++){
-        for(let ix=-1; ix<cols; ix++){
-          const jx = hash(ix + Math.floor(transform.x), iy + Math.floor(transform.y));
-          const jy = hash(ix + 17 + Math.floor(transform.x), iy + 29 + Math.floor(transform.y));
-          const x = ix*step + jx*step + offX;
-          const y = iy*step + jy*step + offY;
-          ctx.fillRect(x, y, size, size);
-        }
-      }
-      ctx.restore();
-    }
-
-    function drawCore(){
-      const p = worldToScreen(0,0);
-      const baseR = 900 * transform.scale;
-      ctx.save();
-      ctx.globalCompositeOperation = 'lighter';
-      let g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, baseR*2.2);
-      g.addColorStop(0, 'rgba(240,248,255,0.07)');
-      g.addColorStop(1, 'rgba(240,248,255,0)');
-      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(p.x, p.y, baseR*2.2, 0, Math.PI*2); ctx.fill();
-      g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, baseR*1.3);
-      g.addColorStop(0, 'rgba(200,230,255,0.12)');
-      g.addColorStop(1, 'rgba(200,230,255,0)');
-      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(p.x, p.y, baseR*1.3, 0, Math.PI*2); ctx.fill();
-      g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, baseR*0.6);
-      g.addColorStop(0, 'rgba(255,255,255,0.25)');
-      g.addColorStop(1, 'rgba(255,255,255,0)');
-      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(p.x, p.y, baseR*0.6, 0, Math.PI*2); ctx.fill();
-      ctx.restore();
-    }
-
-    let worldStarsFar=[], worldStarsNear=[];
-    (function initWorldStars(){
-      const rnd = prng(1337);
-      function gen(n){ const a=[]; for(let i=0;i<n;i++){ a.push({x:(rand01(rnd)-0.5)*worldBounds.width*1.5, y:(rand01(rnd)-0.5)*worldBounds.height*1.5}); } return a; }
-      worldStarsFar = gen(1600); worldStarsNear = gen(700);
-    })();
-    function drawWorldStars(){
-      const viewW = canvas.width/transform.scale, viewH = canvas.height/transform.scale;
-      const viewX = -transform.x, viewY = -transform.y;
-      ctx.save();
-      ctx.globalAlpha = 0.25;
-      for(const s of worldStarsFar){
-        if(s.x < viewX-200 || s.x > viewX+viewW+200 || s.y < viewY-200 || s.y > viewY+viewH+200) continue;
-        const p = worldToScreen(s.x, s.y);
-        ctx.fillStyle = '#cfe0ff'; ctx.fillRect(p.x, p.y, 1, 1);
-      }
-      ctx.globalAlpha = 0.5;
-      for(const s of worldStarsNear){
-        if(s.x < viewX-200 || s.x > viewX+viewW+200 || s.y < viewY-200 || s.y > viewY+viewH+200) continue;
-        const p = worldToScreen(s.x, s.y);
-        ctx.fillStyle = '#f2f6ff'; ctx.fillRect(p.x, p.y, 1.2, 1.2);
-      }
-      ctx.restore();
-    }
-
-    // --- фикс клампа камеры: панорамирование во все стороны ---
-    function clampTransform(){
-      const pad = 200;
-      const viewW = canvas.width  / transform.scale;
-      const viewH = canvas.height / transform.scale;
-      const minTx = -(worldBounds.maxX + pad - viewW);
-      const maxTx = -worldBounds.minX + pad;
-      const minTy = -(worldBounds.maxY + pad - viewH);
-      const maxTy = -worldBounds.minY + pad;
-      transform.x = Math.min(maxTx, Math.max(minTx, transform.x));
-      transform.y = Math.min(maxTy, Math.max(minTy, transform.y));
-      updateDbg();
-    }
-
-    // ввод
-    let mouseDown=false, mlx=0, mly=0;
-    let mouseX = window.innerWidth/2, mouseY = window.innerHeight/2;
-
-    canvas.addEventListener('mousedown', e=>{ mouseDown=true; mlx=e.clientX; mly=e.clientY; });
-    window.addEventListener('mouseup', ()=>{ mouseDown=false; });
-    window.addEventListener('mousemove', e=>{
-      mouseX = e.clientX; mouseY = e.clientY;
-      if(!mouseDown) { updateDbg(); return; }
-      const dx=e.clientX-mlx, dy=e.clientY-mly; mlx=e.clientX; mly=e.clientY;
-      transform.x += dx/transform.scale; transform.y += dy/transform.scale; clampTransform(); draw();
-    }, {passive:false});
-
-    function onWheel(e){
-      e.preventDefault();
-      const dir = e.deltaY < 0 ? 1 : -1;
-      const zoomIntensity = 0.18;
-      const mouseWorld = screenToWorld(e.clientX, e.clientY);
-      let newScale = transform.scale * (1 + dir*zoomIntensity);
-      newScale = Math.max(0.12, Math.min(3.0, newScale));
-      const newTx = (e.clientX / newScale) - mouseWorld.x;
-      const newTy = (e.clientY / newScale) - mouseWorld.y;
-      transform.scale = newScale; transform.x = newTx; transform.y = newTy; clampTransform(); draw();
-    }
-    canvas.addEventListener('wheel', onWheel, {passive:false});
-    window.addEventListener('wheel', onWheel, {passive:false});
-
-    window.addEventListener('keydown', e=>{
-      const k = e.key.toLowerCase();
-      const panStep = 120/transform.scale;
-      if (k==='arrowleft'){ transform.x += panStep; clampTransform(); draw(); }
-      else if (k==='arrowright'){ transform.x -= panStep; clampTransform(); draw(); }
-      else if (k==='arrowup'){ transform.y += panStep; clampTransform(); draw(); }
-      else if (k==='arrowdown'){ transform.y -= panStep; clampTransform(); draw(); }
-      else if (k==='z'){ const cx=innerWidth/2, cy=innerHeight/2; const mw=screenToWorld(cx, cy); let ns=Math.min(3.0, transform.scale*1.18); transform.x=(cx/ns)-mw.x; transform.y=(cy/ns)-mw.y; clampTransform(); draw(); }
-      else if (k==='x'){ const cx=innerWidth/2, cy=innerHeight/2; const mw=screenToWorld(cx, cy); let ns=Math.max(0.12, transform.scale/1.18); transform.x=(cx/ns)-mw.x; transform.y=(cy/ns)-mw.y; clampTransform(); draw(); }
-      else if (k==='d'){ centerView(); draw(); }
-      else if (k==='h'){ hintsVisible=!hintsVisible; setHintsVisible(hintsVisible); }
-    });
-
-    // HUD
-    function updateDbg(){
-      const w = screenToWorld(mouseX, mouseY);
-      dbg.textContent = `x: ${Math.round(w.x)}, y: ${Math.round(w.y)}, z: ${transform.scale.toFixed(2)}`;
-    }
-
-    // выбор системы
-    let selectedSystem = null;
-    canvas.addEventListener('click', e=>{
-      if (transform.scale <= lodThreshold) return;
-      const mx = e.clientX, my = e.clientY;
-      let hit = null, bestDist = 1e9;
-      for (const s of systems){
-        const p = worldToScreen(s.x, s.y);
-        const dx = p.x - mx, dy = p.y - my;
-        const d2 = dx*dx + dy*dy;
-        const r = Math.max(5, 6*transform.scale);
-        if (d2 <= (r*r) && d2 < bestDist){ bestDist = d2; hit = s; }
-      }
-      selectedSystem = hit;
-      if (hit){
-        cardTitle.textContent = hit.name;
-        const sec = sectors.find(ss=>ss.id===hit.sectorId);
-        cardMeta.innerHTML = `Тип: <b>${hit.type}</b><br>Сектор: <b>${sec ? sec.name : hit.sectorId}</b><br>Координаты: <b>${Math.round(hit.x)}, ${Math.round(hit.y)}</b>`;
-        card.style.display = 'block';
-      } else {
-        card.style.display = 'none';
-      }
-      draw();
-    });
-
-    // рендер
-    function drawBackground(){
-      const g = ctx.createLinearGradient(0,0,0,canvas.height);
-      g.addColorStop(0,'#07111a'); g.addColorStop(1,'#0c1016');
-      ctx.fillStyle = g; ctx.fillRect(0,0,canvas.width, canvas.height);
-      drawScreenStars(100, 0.28, 1, 0.20);
-      drawScreenStars(60,  0.35, 1.2, 0.30);
-      drawWorldStars();
-      // ядро
-      drawCore();
-    }
-
-    function drawSectors(){
-      ctx.save();
-      ctx.lineWidth = Math.max(1.5, 2.2*transform.scale);
-      for (const s of sectors){
-        const polyScreen = s.poly.map(p=>worldToScreen(p.x, p.y));
-        ctx.save();
-        ctx.beginPath();
-        ctx.moveTo(polyScreen[0].x, polyScreen[0].y);
-        for(let i=1;i<polyScreen.length;i++){ ctx.lineTo(polyScreen[i].x, polyScreen[i].y); }
-        ctx.closePath();
-        ctx.fillStyle = 'rgba(40, 70, 110, 0.035)';
-        ctx.strokeStyle = 'rgba(67, 110, 168, 0.65)';
-        ctx.fill(); ctx.stroke();
-        const c = worldToScreen(s.center.x, s.center.y);
-        ctx.fillStyle = 'rgba(225,235,255,0.95)';
-        ctx.font = `${Math.max(13, 15*transform.scale)}px sans-serif`;
-        ctx.fillText(s.name, c.x - 34, c.y - 8);
-        ctx.restore();
-      }
-      ctx.restore();
-    }
-
-    function drawSystems(){
-      ctx.save();
-      const r = Math.max(3.2, 4.8*transform.scale);
-      for(const sys of systems){
-        const p = worldToScreen(sys.x, sys.y);
-        let color = sys.type==='mining' ? '#f3b56b' : (sys.type==='gas' ? '#9be0ff' : '#b9ffa4');
-        ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI*2);
-        ctx.fillStyle = color; ctx.shadowColor = 'rgba(0,0,0,0.4)'; ctx.shadowBlur = 4; ctx.fill();
-      }
-      if (selectedSystem){
-        const p = worldToScreen(selectedSystem.x, selectedSystem.y);
-        ctx.beginPath(); ctx.arc(p.x, p.y, r+6, 0, Math.PI*2);
-        ctx.strokeStyle = 'rgba(255,255,255,0.9)'; ctx.lineWidth = 2; ctx.stroke();
-        ctx.beginPath(); ctx.arc(p.x, p.y, r+12, 0, Math.PI*2);
-        ctx.strokeStyle = 'rgba(255,255,255,0.5)'; ctx.lineWidth = 1.5; ctx.stroke();
-      }
-      ctx.restore();
-    }
-
-    function draw(){
-      drawBackground();
-      if (hud) hud.textContent = `Зум: ${transform.scale.toFixed(2)} | смещение: (${transform.x.toFixed(0)}, ${transform.y.toFixed(0)}) | сектора: ${sectors.length} | системы: ${systems.length}`;
-      drawSectors();
-      if(transform.scale > lodThreshold) drawSystems();
-      updateDbg();
-    }
-
-    // init
-    resizeCanvas();
-    centerView();
-    isReady = true;
-    draw();
-  </script>
+  <script type="module" src="./src/main.js"></script>
 </body>
 </html>
