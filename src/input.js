@@ -1,16 +1,17 @@
 import * as cfg from './config.js';
+import { screenToWorld } from './camera.js';
+import { toSystem, toGalaxy } from './router.js';
 
-export function attachInput(canvas, state, api){
-  const { draw, screenToWorld, clampTransform, centerView } = api;
-  let mouseDown=false, mlx=0, mly=0;
+export function attachInput(canvas,state,api){
+  const { draw, clampTransform } = api;
+  let md=false, mlx=0,mly=0;
 
-  canvas.addEventListener('mousedown', e=>{ mouseDown=true; mlx=e.clientX; mly=e.clientY; });
-  window.addEventListener('mouseup', ()=>{ mouseDown=false; });
+  canvas.addEventListener('mousedown',e=>{ md=true; mlx=e.clientX; mly=e.clientY; });
+  window.addEventListener('mouseup',()=>{ md=false; });
 
-  window.addEventListener('mousemove', e=>{
-    state.mouse = { x:e.clientX, y:e.clientY };
-    state.mouseWorld = screenToWorld(state, e.clientX, e.clientY);
-    if(!mouseDown) { draw(); return; }
+  window.addEventListener('mousemove',e=>{
+    state.mouse={x:e.clientX,y:e.clientY}; state.mouseWorld=screenToWorld(state,e.clientX,e.clientY);
+    if(!md){ draw(); return; }
     const dx=e.clientX-mlx, dy=e.clientY-mly; mlx=e.clientX; mly=e.clientY;
     state.transform.x += dx/state.transform.scale; state.transform.y += dy/state.transform.scale;
     clampTransform(state, canvas); draw();
@@ -18,57 +19,52 @@ export function attachInput(canvas, state, api){
 
   function onWheel(e){
     e.preventDefault();
-    const dir = e.deltaY < 0 ? 1 : -1;
-    const zoomIntensity = 0.18;
-    const mw = screenToWorld(state, e.clientX, e.clientY);
-    let newScale = state.transform.scale * (1 + dir*zoomIntensity);
-    newScale = Math.max(0.12, Math.min(3.0, newScale));
-    const newTx = (e.clientX / newScale) - mw.x;
-    const newTy = (e.clientY / newScale) - mw.y;
-    state.transform.scale = newScale; state.transform.x = newTx; state.transform.y = newTy;
+    const dir = e.deltaY < 0 ? 1 : -1; const k = 1 + dir*0.18;
+    const mw=screenToWorld(state,e.clientX,e.clientY);
+    let ns=Math.max(0.12, Math.min(4.0, state.transform.scale * k));
+    state.transform.x = (e.clientX/ns) - mw.x; state.transform.y = (e.clientY/ns) - mw.y; state.transform.scale = ns;
     clampTransform(state, canvas); draw();
   }
   canvas.addEventListener('wheel', onWheel, {passive:false});
   window.addEventListener('wheel', onWheel, {passive:false});
 
-  window.addEventListener('keydown', e=>{
-    const k = e.key.toLowerCase();
-    const panStep = 120/state.transform.scale;
-    if (k==='arrowleft'){ state.transform.x += panStep; clampTransform(state, canvas); draw(); }
-    else if (k==='arrowright'){ state.transform.x -= panStep; clampTransform(state, canvas); draw(); }
-    else if (k==='arrowup'){ state.transform.y += panStep; clampTransform(state, canvas); draw(); }
-    else if (k==='arrowdown'){ state.transform.y -= panStep; clampTransform(state, canvas); draw(); }
-    else if (k==='z'){ const cx=innerWidth/2, cy=innerHeight/2; const mw=screenToWorld(state, cx, cy); let ns=Math.min(3.0, state.transform.scale*1.18); state.transform.x=(cx/ns)-mw.x; state.transform.y=(cy/ns)-mw.y; clampTransform(state, canvas); state.transform.scale=ns; draw(); }
-    else if (k==='x'){ const cx=innerWidth/2, cy=innerHeight/2; const mw=screenToWorld(state, cx, cy); let ns=Math.max(0.12, state.transform.scale/1.18); state.transform.x=(cx/ns)-mw.x; state.transform.y=(cy/ns)-mw.y; clampTransform(state, canvas); state.transform.scale=ns; draw(); }
-    else if (k==='d'){ centerView(state, canvas); draw(); }
-    else if (k==='h'){ const btn=document.getElementById('toggleHints'); btn?.click(); }
-  });
-
-  // выбор системы
   canvas.addEventListener('click', e=>{
-    if (state.transform.scale <= cfg.LOD_THRESHOLD) return;
-    const mx = e.clientX, my = e.clientY;
-    let hit = null, bestDist = 1e9;
-    for (const s of state.systems){
-      const p = { x:(s.x+state.transform.x)*state.transform.scale, y:(s.y+state.transform.y)*state.transform.scale };
-      const dx = p.x - mx, dy = p.y - my;
-      const d2 = dx*dx + dy*dy;
-      const r = Math.max(5, 6*state.transform.scale);
-      if (d2 <= (r*r) && d2 < bestDist){ bestDist = d2; hit = s; }
+    if(state.mode!=='galaxy') return;
+    const mx=e.clientX,my=e.clientY;
+    if(state.transform.scale <= cfg.LOD_THRESHOLD){
+      const cs = state._lastClusters||[];
+      let hit=null;
+      for(const c of cs){
+        const r = Math.max(10, 8 + Math.log2(4+c.count)*5);
+        const dx=c.sx-mx, dy=c.sy-my;
+        if(dx*dx+dy*dy <= r*r){ hit=c; break; }
+      }
+      if(hit){
+        state.onZoomToWorld && state.onZoomToWorld(hit.wx, hit.wy);
+        return;
+      }
     }
-    state.selectedSystem = hit;
-    const card = document.getElementById('card');
-    if (hit){
-      const sec = state.sectors.find(ss=>ss.id===hit.sectorId);
-      document.getElementById('cardTitle').textContent = hit.name;
-      document.getElementById('cardMeta').innerHTML = `Тип: <b>${hit.type}</b><br>Сектор: <b>${sec ? sec.name : hit.sectorId}</b><br>Координаты: <b>${Math.round(hit.x)}, ${Math.round(hit.y)}</b>`;
-      card.style.display = 'block';
-    } else {
-      card.style.display = 'none';
+    let hitS=null, best=1e9;
+    for(const s of state.systems){
+      const px=(s.x+state.transform.x)*state.transform.scale, py=(s.y+state.transform.y)*state.transform.scale;
+      const r=Math.max(5,6*state.transform.scale); const dx=px-mx, dy=py-my; const d=dx*dx+dy*dy;
+      if(d<=r*r && d<best){ best=d; hitS=s; }
     }
+    if(hitS){ state.selectedSystem=hitS; toSystem(hitS.id); }
     draw();
   });
 
-  document.getElementById('closeCard').onclick = ()=>{ state.selectedSystem = null; document.getElementById('card').style.display='none'; draw(); };
-  document.getElementById('enterBtn').onclick = ()=> alert('Заглушка: входим в локальную карту системы');
+  window.addEventListener('keydown', e=>{
+    const k=e.key.toLowerCase();
+    const step=120/state.transform.scale;
+    if(k==='arrowleft'){ state.transform.x += step; clampTransform(state,canvas); draw(); }
+    else if(k==='arrowright'){ state.transform.x -= step; clampTransform(state,canvas); draw(); }
+    else if(k==='arrowup'){ state.transform.y += step; clampTransform(state,canvas); draw(); }
+    else if(k==='arrowdown'){ state.transform.y -= step; clampTransform(state,canvas); draw(); }
+    else if(k==='z'){ const cx=innerWidth/2, cy=innerHeight/2; const mw=screenToWorld(state,cx,cy); let ns=Math.min(4.0,state.transform.scale*1.18); state.transform.x=(cx/ns)-mw.x; state.transform.y=(cy/ns)-mw.y; state.transform.scale=ns; clampTransform(state,canvas); draw(); }
+    else if(k==='x'){ const cx=innerWidth/2, cy=innerHeight/2; const mw=screenToWorld(state,cx,cy); let ns=Math.max(0.12,state.transform.scale/1.18); state.transform.x=(cx/ns)-mw.x; state.transform.y=(cy/ns)-mw.y; state.transform.scale=ns; clampTransform(state,canvas); draw(); }
+    else if(k==='d'){ state.center && state.center(); draw(); }
+    else if(k==='h'){ document.getElementById('toggleHints')?.click(); }
+    else if(k==='escape' || k==='backspace'){ if(state.mode==='system') toGalaxy(); }
+  });
 }
