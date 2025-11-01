@@ -1,16 +1,5 @@
-export function initUI(state, { draw }){
-  const ui = document.getElementById('ui');
-  const legend = document.getElementById('legend');
-  const toggle = document.getElementById('toggleHints');
-  let visible = false;
-  const set = v => { visible = v; ui.classList.toggle('hidden', !v); legend.classList.toggle('hidden', !v); };
-  toggle.addEventListener('click', ()=> set(!visible));
-  set(false);
-}
-
-export function setHintsVisible(v){
-  const ui = document.getElementById('ui');
-  const legend = document.getElementById('legend');
-  ui.classList.toggle('hidden', !v);
-  legend.classList.toggle('hidden', !v);
+export function initUI(state,{draw}){
+  const ui=document.getElementById('ui'), leg=document.getElementById('legend'), btn=document.getElementById('toggleHints');
+  let vis=false; const set=v=>{vis=v; ui.classList.toggle('hidden',!v); leg.classList.toggle('hidden',!v);};
+  btn.addEventListener('click',()=>set(!vis)); set(false);
 }
