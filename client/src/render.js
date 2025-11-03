@@ -1,4 +1,3 @@
-
 import { w2s } from './camera.js';
 import { CORE_RADIUS } from './config.js';
 
@@ -8,9 +7,8 @@ export function drawSectors(ctx,st){
     const ps=s.poly.map(p=>w2s(st,p.x,p.y));
     ctx.beginPath(); ctx.moveTo(ps[0].x,ps[0].y); for(let i=1;i<ps.length;i++)ctx.lineTo(ps[i].x,ps[i].y); ctx.closePath();
     ctx.strokeStyle='rgba(76,121,180,0.55)';
-    ctx.fillStyle='rgba(40,70,110,0.025)';
+    ctx.fillStyle='rgba(40,70,110,0.020)';
     ctx.fill(); ctx.stroke();
-    // label
     const c=w2s(st,s.center.x,s.center.y);
     ctx.fillStyle='rgba(225,235,255,.95)';
     ctx.font=`${Math.max(12,13*st.t.scale)}px system-ui,Segoe UI,Arial`;
@@ -21,7 +19,7 @@ export function drawSectors(ctx,st){
 export function drawSystems(ctx,st){
   ctx.save();
   for(const sys of st.systems){
-    const d2=sys.x*sys.x+sys.y*sys.y; if(d2<CORE_RADIUS*CORE_RADIUS) continue;
+    const d2=sys.x*sys.x+sys.y*sys.y; if(d2<CORE_RADIUS*CORE_RADIUS) continue; // пустое яркое ядро
     const p=w2s(st,sys.x,sys.y);
     const r=Math.max(1, Math.min(5, 1.2 + 2.4*st.t.scale));
     const col=sys.type==='mining'?'#f3b56b':(sys.type==='gas'?'#9be0ff':'#b9ffa4');
