@@ -1,4 +1,3 @@
-
 export function parseHash(){
   const h=(location.hash||'').replace(/^#/,'').trim();
   if(!h||h==='/'||h==='galaxy'||h==='/galaxy') return {route:'galaxy'};
