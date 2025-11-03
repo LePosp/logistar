@@ -3,17 +3,18 @@ import { w2s } from './camera.js';
 import { CORE_RADIUS } from './config.js';
 
 export function drawSectors(ctx,st){
-  ctx.save(); ctx.lineWidth=Math.max(1.2,2.0*st.t.scale);
+  ctx.save(); ctx.lineWidth=Math.max(1.1,1.6*st.t.scale);
   for(const s of st.sectors){
     const ps=s.poly.map(p=>w2s(st,p.x,p.y));
     ctx.beginPath(); ctx.moveTo(ps[0].x,ps[0].y); for(let i=1;i<ps.length;i++)ctx.lineTo(ps[i].x,ps[i].y); ctx.closePath();
-    ctx.strokeStyle='rgba(76,121,180,0.65)';
-    ctx.fillStyle='rgba(40,70,110,0.03)';
+    ctx.strokeStyle='rgba(76,121,180,0.55)';
+    ctx.fillStyle='rgba(40,70,110,0.025)';
     ctx.fill(); ctx.stroke();
+    // label
     const c=w2s(st,s.center.x,s.center.y);
     ctx.fillStyle='rgba(225,235,255,.95)';
-    ctx.font=`${Math.max(12,14*st.t.scale)}px system-ui,Segoe UI,Arial`;
-    ctx.fillText(s.name, c.x-32, c.y-8);
+    ctx.font=`${Math.max(12,13*st.t.scale)}px system-ui,Segoe UI,Arial`;
+    ctx.fillText(s.name, c.x-30, c.y-8);
   } ctx.restore();
 }
 

@@ -13,10 +13,12 @@ export function generateSystem(id){
 
 export function drawSystem(ctx,st){
   const cx=innerWidth/2, cy=innerHeight/2; const R=60*st.t.scale;
+  // фон рисуется отдельно в main (systemBackground)
   ctx.save(); ctx.globalCompositeOperation='lighter';
   let g=ctx.createRadialGradient(cx,cy,0,cx,cy,R*6); g.addColorStop(0,'rgba(255,230,180,0.15)'); g.addColorStop(1,'rgba(255,230,180,0)'); ctx.fillStyle=g; ctx.beginPath(); ctx.arc(cx,cy,R*6,0,Math.PI*2); ctx.fill();
   g=ctx.createRadialGradient(cx,cy,0,cx,cy,R*2.5); g.addColorStop(0,'rgba(255,240,200,0.35)'); g.addColorStop(1,'rgba(255,240,200,0)'); ctx.fillStyle=g; ctx.beginPath(); ctx.arc(cx,cy,R*2.5,0,Math.PI*2); ctx.fill();
   ctx.beginPath(); ctx.arc(cx,cy,R,0,Math.PI*2); ctx.fillStyle='#ffdca8'; ctx.fill(); ctx.restore();
+
   ctx.save(); ctx.strokeStyle='rgba(180,200,230,0.25)'; ctx.lineWidth=Math.max(1,1.5*st.t.scale);
   for(const pl of st.system.planets){
     const or=pl.dist*st.t.scale; ctx.beginPath(); ctx.arc(cx,cy,or,0,Math.PI*2); ctx.stroke();

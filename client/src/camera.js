@@ -1,12 +1,8 @@
 
 export function makeT(x=0,y=0,scale=1){ return { x,y, scale }; }
 
-export function w2s(st,wx,wy){
-  return { x:(wx+st.t.x)*st.t.scale, y:(wy+st.t.y)*st.t.scale };
-}
-export function s2w(st,sx,sy){
-  const s=st.t.scale; return { x:sx/s - st.t.x, y: sy/s - st.t.y };
-}
+export function w2s(st,wx,wy){ return { x:(wx+st.t.x)*st.t.scale, y:(wy+st.t.y)*st.t.scale }; }
+export function s2w(st,sx,sy){ const s=st.t.scale; return { x:sx/s - st.t.x, y: sy/s - st.t.y }; }
 
 export function clamp(st,canvas){
   if(!st.bounds) return;
