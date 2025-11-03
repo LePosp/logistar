@@ -1,17 +1,21 @@
-import { STAR_TILE, STAR_LAYERS, GALAXY_RADIUS } from './config.js';
+import { STAR_TILE, STAR_LAYERS, GALAXY_RADIUS, CORE_RADIUS } from './config.js';
 import { w2s } from './camera.js';
 
 function lcg(seed){ let s=seed>>>0 || 1; return ()=> (s = (s*1664525 + 1013904223) >>> 0); }
 function fr(r){ return r()/0xffffffff; }
 
 export function galaxyBackground(ctx,st){
-  ctx.save(); ctx.fillStyle='#0b1017'; ctx.fillRect(0,0,innerWidth,innerHeight); ctx.restore();
+  ctx.save();
+  ctx.fillStyle='#0b1017';
+  ctx.fillRect(0,0,innerWidth,innerHeight);
+  ctx.restore();
 
-  // звёзды слоями, привязаны к миру
+  // мировые тайлы звёзд
   const tl = { x: -st.t.x, y: -st.t.y };
   const br = { x: (innerWidth/st.t.scale) - st.t.x, y: (innerHeight/st.t.scale) - st.t.y };
   const ix0=Math.floor(tl.x/STAR_TILE)-1, iy0=Math.floor(tl.y/STAR_TILE)-1;
   const ix1=Math.floor(br.x/STAR_TILE)+1, iy1=Math.floor(br.y/STAR_TILE)+1;
+
   ctx.save();
   for(const layer of STAR_LAYERS){
     for(let ix=ix0; ix<=ix1; ix++){
@@ -23,24 +27,28 @@ export function galaxyBackground(ctx,st){
           const wx=ix*STAR_TILE + rx*STAR_TILE;
           const wy=iy*STAR_TILE + ry*STAR_TILE;
           const dist=Math.hypot(wx,wy);
-          const fall = 0.85 + 0.35*Math.max(0,1.0 - (dist/GALAXY_RADIUS));
+          // вырезаем ядро — там звёзд нет
+          if(dist < CORE_RADIUS*1.05) continue;
+          const fade = 0.85 + 0.35*Math.max(0,1.0 - (dist/GALAXY_RADIUS));
           const size=layer.size[0] + (layer.size[1]-layer.size[0])*rs;
-          const a=layer.alpha*fall;
+          const a=layer.alpha*fade;
           const p=w2s(st,wx,wy);
-          ctx.globalAlpha=a; ctx.fillStyle='#cfe2ff'; ctx.fillRect(p.x,p.y,size,size);
+          ctx.globalAlpha=a; ctx.fillStyle='#cfe2ff';
+          ctx.fillRect(p.x,p.y,size,size);
         }
       }
     }
   }
   ctx.restore();
 
-  // свечение ядра, строго в (0,0) мира
+  // яркое ядро в (0,0) мира
   const core = w2s(st,0,0);
-  const R = Math.max(innerWidth, innerHeight)*0.7;
+  const R = Math.max(innerWidth, innerHeight)*0.65;
   const g = ctx.createRadialGradient(core.x,core.y,0, core.x,core.y,R);
-  g.addColorStop(0.0, 'rgba(220,230,255,0.12)');
-  g.addColorStop(0.4, 'rgba(180,200,255,0.06)');
-  g.addColorStop(1.0, 'rgba(0,0,0,0)');
+  g.addColorStop(0.00, 'rgba(255,240,220,0.20)');
+  g.addColorStop(0.25, 'rgba(220,230,255,0.12)');
+  g.addColorStop(0.60, 'rgba(160,190,255,0.05)');
+  g.addColorStop(1.00, 'rgba(0,0,0,0)');
   ctx.fillStyle=g; ctx.fillRect(0,0,innerWidth,innerHeight);
 }
 
