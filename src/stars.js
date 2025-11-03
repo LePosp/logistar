@@ -9,15 +9,14 @@ function coreGradient(ctx){
   const cx=innerWidth/2, cy=innerHeight/2;
   const R=Math.max(innerWidth, innerHeight)*0.75;
   const g=ctx.createRadialGradient(cx,cy,0,cx,cy,R);
-  g.addColorStop(0.0, 'rgba(220,230,255,0.08)');
+  g.addColorStop(0.0, 'rgba(220,230,255,0.10)');
   g.addColorStop(0.4, 'rgba(180,200,255,0.05)');
   g.addColorStop(1.0, 'rgba(0,0,0,0)');
   ctx.fillStyle=g; ctx.fillRect(0,0,innerWidth,innerHeight);
 }
 
-export function background(ctx,st){
+export function galaxyBackground(ctx,st){
   ctx.save(); ctx.fillStyle='#0b1017'; ctx.fillRect(0,0,innerWidth,innerHeight); ctx.restore();
-  // compute visible world rect
   const tl = { x: -st.t.x, y: -st.t.y };
   const br = { x: (innerWidth/st.t.scale) - st.t.x, y: (innerHeight/st.t.scale) - st.t.y };
   const ix0=Math.floor(tl.x/STAR_TILE)-1, iy0=Math.floor(tl.y/STAR_TILE)-1;
@@ -44,4 +43,16 @@ export function background(ctx,st){
   }
   ctx.restore();
   coreGradient(ctx);
+}
+
+export function systemBackground(ctx){
+  ctx.save();
+  ctx.fillStyle = '#0b1017'; ctx.fillRect(0,0,innerWidth,innerHeight);
+  // лёгкие «пылевые» точки
+  ctx.globalAlpha = 0.25; ctx.fillStyle='#d6e3ff';
+  for(let i=0;i<120;i++){
+    const x = Math.random()*innerWidth, y = Math.random()*innerHeight;
+    ctx.fillRect(x,y,1,1);
+  }
+  ctx.restore();
 }

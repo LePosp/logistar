@@ -1,20 +1,49 @@
 
-import { CORE_RADIUS } from './config.js';
+import { CORE_RADIUS, SECTOR_COUNT, SECTOR_RADIUS, RADIAL_SEGMENTS, RADIAL_WIGGLE } from './config.js';
 
-// "Ромбические" сектора вокруг центра (красиво смыкаются)
+// Сектора — круглая галактика, границы соприкасаются, радиальные рёбра «неровные» (совпадают у соседей)
 export function sectors(){
-  const size=2600; // диаметр ромба
-  const half=size/2;
-  const centers=[
-    {x:0,y:0}, {x:size,y:0}, {x:-size,y:0}, {x:0,y:size}, {x:0,y:-size},
-    {x:size,y:size}, {x:-size,y:size}, {x:size,y:-size}, {x:-size,y:-size}
-  ];
-  return centers.map((c,i)=>{
-    const poly=[
-      {x:c.x, y:c.y-half}, {x:c.x+half, y:c.y}, {x:c.x, y:c.y+half}, {x:c.x-half, y:c.y}
-    ];
-    return { name:`Сектор ${i}`, center:c, poly };
-  });
+  const N = SECTOR_COUNT;
+  const R = SECTOR_RADIUS;
+  const dTheta = (Math.PI*2)/N;
+  // сгенерим «неровные» радиальные ребра, которые шарятся между секторами
+  const radial = [];
+  for(let k=0;k<N;k++){
+    const ang = k*dTheta;
+    const pts = [{x:0,y:0}];
+    for(let i=1;i<=RADIAL_SEGMENTS;i++){
+      const t=i/RADIAL_SEGMENTS;
+      const rr = R * (t + (Math.sin((t+0.23*k)*Math.PI*2)*0.5 + Math.cos((t*1.7+0.11*k)*Math.PI)*0.5) * RADIAL_WIGGLE * (1.0 - 0.6*t));
+      const x = Math.cos(ang) * rr;
+      const y = Math.sin(ang) * rr;
+      pts.push({x,y});
+    }
+    radial.push(pts);
+  }
+  // соберём полигоны секторов: радиальная грань k -> дуга -> радиальная грань (k+1) назад
+  const sectors = [];
+  for(let k=0;k<N;k++){
+    const a0 = k*dTheta, a1 = (k+1)*dTheta;
+    const poly = [];
+    // радиальная грань k
+    for(const p of radial[k]) poly.push(p);
+    // дуга внешняя: аккуратная дуга окружности (общая для соседей)
+    const ARC_STEPS = 5;
+    for(let i=1;i<=ARC_STEPS;i++){
+      const tt = i/ARC_STEPS;
+      const aa = a0*(1-tt) + a1*tt;
+      poly.push({ x: Math.cos(aa)*R, y: Math.sin(aa)*R });
+    }
+    // радиальная грань k+1 назад
+    const next = radial[(k+1)%N];
+    for(let i=next.length-2; i>=0; i--) poly.push(next[i]);
+    sectors.push({ name:`Сектор ${k}`, center: midPoint(poly), poly });
+  }
+  return sectors;
+}
+
+function midPoint(poly){
+  let x=0,y=0; for(const p of poly){x+=p.x;y+=p.y;} return {x:x/poly.length, y:y/poly.length};
 }
 
 export function bounds(sectors){
@@ -29,14 +58,14 @@ export function bounds(sectors){
   return {minX:minX-pad, minY:minY-pad, maxX:maxX+pad, maxY:maxY+pad};
 }
 
-export function systems(sectors){
-  // Сгенерим около 160 систем вокруг центра, исключая ядро
-  const out=[]; const rng=mulberry32(123456);
-  const N=160;
+export function systems(){
+  // БОЛЬШЕ систем в круге, исключая ядро
+  const out=[]; const rng=mulberry32(987654);
+  const N=600;
   for(let i=0;i<N;i++){
-    const r=randBetween(rng, 600, 6400);
-    const a=randBetween(rng, 0, Math.PI*2);
-    const x=Math.cos(a)*r, y=Math.sin(a)*r;
+    const r = randBetween(rng, 400, SECTOR_RADIUS-80);
+    const a = randBetween(rng, 0, Math.PI*2);
+    const x = Math.cos(a)*r, y = Math.sin(a)*r;
     if(x*x+y*y<CORE_RADIUS*CORE_RADIUS) continue;
     const t=rng(); const type = t<0.33?'mining':(t<0.66?'gas':'hub');
     out.push({ id:`sys_${i}`, name:`Система ${i}`, x,y,type });

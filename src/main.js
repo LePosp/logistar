@@ -37,11 +37,12 @@ function resize(){
 window.addEventListener('resize', resize);
 
 function draw(){
-  BG.background(ctx,st);
   if(st.mode==='galaxy'){
+    BG.galaxyBackground(ctx,st);
     drawSectors(ctx,st);
     drawSystems(ctx,st);
   }else{
+    BG.systemBackground(ctx);
     drawSystem(ctx,st);
   }
   drawHUD(st);
@@ -51,7 +52,7 @@ function boot(){
   resize();
   st.sectors=W.sectors();
   st.bounds=W.bounds(st.sectors);
-  st.systems=W.systems(st.sectors);
+  st.systems=W.systems();
   st.center=()=>{ center(st,canvas); clamp(st,canvas); draw(); };
   st.center();
   st.toGalaxy=()=>toGalaxy();
@@ -68,9 +69,7 @@ function boot(){
       st.selected = st.systems.find(s=>s.id===id) || st.selected;
       st.system = generateSystem(id);
       st.mode='system'; useT('system');
-      st.systemT.scale=1.0;
-      st.systemT.x = (innerWidth/2)/st.systemT.scale;
-      st.systemT.y = (innerHeight/2)/st.systemT.scale;
+      st.systemT.scale=1.0; // центр сцены всегда по центру экрана, панорамирования нет
       backBtn.style.display='inline-block';
       draw();
     }
