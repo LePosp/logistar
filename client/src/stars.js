@@ -1,22 +1,13 @@
-
 import { STAR_TILE, STAR_LAYERS, GALAXY_RADIUS } from './config.js';
 import { w2s } from './camera.js';
 
 function lcg(seed){ let s=seed>>>0 || 1; return ()=> (s = (s*1664525 + 1013904223) >>> 0); }
 function fr(r){ return r()/0xffffffff; }
 
-function coreGradient(ctx){
-  const cx=innerWidth/2, cy=innerHeight/2;
-  const R=Math.max(innerWidth, innerHeight)*0.75;
-  const g=ctx.createRadialGradient(cx,cy,0,cx,cy,R);
-  g.addColorStop(0.0, 'rgba(220,230,255,0.10)');
-  g.addColorStop(0.4, 'rgba(180,200,255,0.05)');
-  g.addColorStop(1.0, 'rgba(0,0,0,0)');
-  ctx.fillStyle=g; ctx.fillRect(0,0,innerWidth,innerHeight);
-}
-
 export function galaxyBackground(ctx,st){
   ctx.save(); ctx.fillStyle='#0b1017'; ctx.fillRect(0,0,innerWidth,innerHeight); ctx.restore();
+
+  // звёзды слоями, привязаны к миру
   const tl = { x: -st.t.x, y: -st.t.y };
   const br = { x: (innerWidth/st.t.scale) - st.t.x, y: (innerHeight/st.t.scale) - st.t.y };
   const ix0=Math.floor(tl.x/STAR_TILE)-1, iy0=Math.floor(tl.y/STAR_TILE)-1;
@@ -42,17 +33,20 @@ export function galaxyBackground(ctx,st){
     }
   }
   ctx.restore();
-  coreGradient(ctx);
+
+  // свечение ядра, строго в (0,0) мира
+  const core = w2s(st,0,0);
+  const R = Math.max(innerWidth, innerHeight)*0.7;
+  const g = ctx.createRadialGradient(core.x,core.y,0, core.x,core.y,R);
+  g.addColorStop(0.0, 'rgba(220,230,255,0.12)');
+  g.addColorStop(0.4, 'rgba(180,200,255,0.06)');
+  g.addColorStop(1.0, 'rgba(0,0,0,0)');
+  ctx.fillStyle=g; ctx.fillRect(0,0,innerWidth,innerHeight);
 }
 
 export function systemBackground(ctx){
-  ctx.save();
-  ctx.fillStyle = '#0b1017'; ctx.fillRect(0,0,innerWidth,innerHeight);
-  // лёгкие «пылевые» точки
-  ctx.globalAlpha = 0.25; ctx.fillStyle='#d6e3ff';
-  for(let i=0;i<120;i++){
-    const x = Math.random()*innerWidth, y = Math.random()*innerHeight;
-    ctx.fillRect(x,y,1,1);
-  }
+  ctx.save(); ctx.fillStyle='#0b1017'; ctx.fillRect(0,0,innerWidth,innerHeight);
+  ctx.globalAlpha=0.25; ctx.fillStyle='#d6e3ff';
+  for(let i=0;i<120;i++){ const x=Math.random()*innerWidth, y=Math.random()*innerHeight; ctx.fillRect(x,y,1,1); }
   ctx.restore();
 }
