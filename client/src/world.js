@@ -1,50 +1,44 @@
+import { CORE_RADIUS, SECTOR_COUNT, SECTOR_RADIUS, RADIAL_SEGMENTS, RADIAL_WIGGLE, ARC_WIGGLE_AMPL } from './config.js';
 
-import { CORE_RADIUS, SECTOR_COUNT, SECTOR_RADIUS, RADIAL_SEGMENTS, RADIAL_WIGGLE } from './config.js';
+// единая функция «волнистой» дуги — чтобы соседние сектора совпадали по границе
+function arcRadius(theta){
+  const a1 = Math.sin(theta*3.0 + 0.7)*0.5 + Math.cos(theta*1.6 - 0.3)*0.5;
+  const a2 = Math.sin(theta*5.2 + 1.1)*0.5 + Math.cos(theta*2.9 + 0.4)*0.5;
+  return SECTOR_RADIUS * (1 + ARC_WIGGLE_AMPL * 0.5*(a1*0.6 + a2*0.4));
+}
 
-// Сектора — круглая галактика, границы соприкасаются, радиальные рёбра «неровные» (совпадают у соседей)
 export function sectors(){
   const N = SECTOR_COUNT;
-  const R = SECTOR_RADIUS;
-  const dTheta = (Math.PI*2)/N;
-  // сгенерим «неровные» радиальные ребра, которые шарятся между секторами
+  const dA = (Math.PI*2)/N;
   const radial = [];
   for(let k=0;k<N;k++){
-    const ang = k*dTheta;
+    const ang = k*dA;
     const pts = [{x:0,y:0}];
     for(let i=1;i<=RADIAL_SEGMENTS;i++){
       const t=i/RADIAL_SEGMENTS;
-      const rr = R * (t + (Math.sin((t+0.23*k)*Math.PI*2)*0.5 + Math.cos((t*1.7+0.11*k)*Math.PI)*0.5) * RADIAL_WIGGLE * (1.0 - 0.6*t));
-      const x = Math.cos(ang) * rr;
-      const y = Math.sin(ang) * rr;
-      pts.push({x,y});
+      const wob = (Math.sin((t+0.23*k)*Math.PI*2)*0.5 + Math.cos((t*1.7+0.11*k)*Math.PI)*0.5) * RADIAL_WIGGLE * (1.0 - 0.55*t);
+      const rr = (t + wob) * arcRadius(ang);
+      pts.push({x: Math.cos(ang)*rr, y: Math.sin(ang)*rr});
     }
     radial.push(pts);
   }
-  // соберём полигоны секторов: радиальная грань k -> дуга -> радиальная грань (k+1) назад
-  const sectors = [];
+  const secs=[];
   for(let k=0;k<N;k++){
-    const a0 = k*dTheta, a1 = (k+1)*dTheta;
-    const poly = [];
-    // радиальная грань k
+    const a0=k*dA, a1=(k+1)*dA;
+    const poly=[];
     for(const p of radial[k]) poly.push(p);
-    // дуга внешняя: аккуратная дуга окружности (общая для соседей)
-    const ARC_STEPS = 5;
+    const ARC_STEPS=6;
     for(let i=1;i<=ARC_STEPS;i++){
-      const tt = i/ARC_STEPS;
-      const aa = a0*(1-tt) + a1*tt;
-      poly.push({ x: Math.cos(aa)*R, y: Math.sin(aa)*R });
+      const tt=i/ARC_STEPS, th=a0*(1-tt)+a1*tt, r=arcRadius(th);
+      poly.push({x:Math.cos(th)*r, y:Math.sin(th)*r});
     }
-    // радиальная грань k+1 назад
-    const next = radial[(k+1)%N];
-    for(let i=next.length-2; i>=0; i--) poly.push(next[i]);
-    sectors.push({ name:`Сектор ${k}`, center: midPoint(poly), poly });
+    const next=radial[(k+1)%N];
+    for(let i=next.length-2;i>=0;i--) poly.push(next[i]);
+    secs.push({name:`Сектор ${k}`, center: mid(poly), poly});
   }
-  return sectors;
+  return secs;
 }
-
-function midPoint(poly){
-  let x=0,y=0; for(const p of poly){x+=p.x;y+=p.y;} return {x:x/poly.length, y:y/poly.length};
-}
+function mid(poly){ let x=0,y=0; for(const p of poly){x+=p.x;y+=p.y;} return {x:x/poly.length, y:y/poly.length}; }
 
 export function bounds(sectors){
   let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
@@ -59,20 +53,17 @@ export function bounds(sectors){
 }
 
 export function systems(){
-  // БОЛЬШЕ систем в круге, исключая ядро
   const out=[]; const rng=mulberry32(987654);
-  const N=600;
+  const N=700; // больше систем
   for(let i=0;i<N;i++){
-    const r = randBetween(rng, 400, SECTOR_RADIUS-80);
+    const r = randBetween(rng, 380, SECTOR_RADIUS-60);
     const a = randBetween(rng, 0, Math.PI*2);
     const x = Math.cos(a)*r, y = Math.sin(a)*r;
-    if(x*x+y*y<CORE_RADIUS*CORE_RADIUS) continue;
+    if(x*x+y*y<CORE_RADIUS*CORE_RADIUS) continue; // пустое ядро
     const t=rng(); const type = t<0.33?'mining':(t<0.66?'gas':'hub');
     out.push({ id:`sys_${i}`, name:`Система ${i}`, x,y,type });
   }
   return out;
 }
-
-// --- tiny RNG
 function mulberry32(a){return function(){let t=a+=0x6D2B79F5;t=Math.imul(t^t>>>15,t|1);t^=t+Math.imul(t^t>>>7,t|61);return((t^t>>>14)>>>0)/4294967296;}}
 function randBetween(r, lo, hi){return lo + (hi-lo)*r();}
