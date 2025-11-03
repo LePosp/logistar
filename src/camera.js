@@ -57,18 +57,12 @@ export function computeMinScaleToFit(bounds, canvas){
   const vh = canvas.height / dpr;
   const extX = (bounds.maxX - bounds.minX);
   const extY = (bounds.maxY - bounds.minY);
+  // avoid division by zero
+  if(extX <= 0 || extY <= 0) return 0.02;
   // we want worldUnits * scale <= viewportPixels
   const sx = vw / extX;
   const sy = vh / extY;
-  // choose smaller of sx, sy to fit both
-  const minScale = Math.min(sx, sy) * 0.95; // a bit of padding
-  return Math.max(0.02, Math.min(minScale, 6)); // clamp
-}
-
-function ensureScaleWithBounds(st, canvas){
-  if (!st.t || !Number.isFinite(st.t.scale)) st.t.scale = 0.30;
-  // compute dynamic min scale if bounds available
-  const minS = st.bounds ? computeMinScaleToFit(st.bounds, canvas) : 0.08;
-  if (st.t.scale < minS) st.t.scale = minS;
-  if (st.t.scale > 6) st.t.scale = 6;
+  // choose smaller of sx, sy to fit both, add small padding
+  const minScale = Math.min(sx, sy) * 0.95;
+  return Math.max(0.02, Math.min(minScale, 6));
 }
