@@ -2,31 +2,56 @@ import { s2w } from './camera.js';
 
 function clientPos(e){ return { x: e.clientX, y: e.clientY }; }
 
+// Attach input handlers: pointer-based panning + pinch-to-zoom + wheel zoom + keyboard
 export function attach(canvas, st, api){
   const { draw, clamp, toSystem, ensureScale } = api;
-  let md=false, lx=0, ly=0, activePointerId = null;
+  let md=false, lx=0, ly=0, activePointerId = null, lastPinchDist = undefined;
+  const pointers = new Map();
 
-  // pointer events (works for mouse + touch + pen)
+  // pointerdown: track pointers
   canvas.addEventListener('pointerdown', e => {
     canvas.setPointerCapture && canvas.setPointerCapture(e.pointerId);
-    activePointerId = e.pointerId;
-    md = true;
-    const p = clientPos(e);
-    lx = p.x; ly = p.y;
-  });
-
-  window.addEventListener('pointerup', e => {
-    if(activePointerId && e.pointerId !== activePointerId) return;
-    md = false; activePointerId = null;
+    pointers.set(e.pointerId, clientPos(e));
+    if (pointers.size === 1) {
+      const p = clientPos(e);
+      lx = p.x; ly = p.y; md = true; activePointerId = e.pointerId;
+    } else {
+      md = false; activePointerId = null;
+      // prepare pinch
+      const it = pointers.values(); const a = it.next().value; const b = it.next().value;
+      if (a && b) lastPinchDist = Math.hypot(a.x - b.x, a.y - b.y);
+    }
   });
 
   window.addEventListener('pointermove', e => {
-    const p = clientPos(e);
-    st.mouse = { x: p.x, y: p.y };
-    st.mouseW = s2w(st, p.x, p.y, canvas);
+    if (!pointers.has(e.pointerId)) return;
+    pointers.set(e.pointerId, clientPos(e));
+    st.mouse = clientPos(e);
+    st.mouseW = s2w(st, st.mouse.x, st.mouse.y, canvas);
+
+    if (pointers.size === 2) {
+      // pinch-to-zoom
+      const it = pointers.values(); const a = it.next().value; const b = it.next().value;
+      const midX = (a.x + b.x)/2, midY = (a.y + b.y)/2;
+      const dist = Math.hypot(a.x - b.x, a.y - b.y);
+      if (typeof lastPinchDist === 'number' && lastPinchDist > 0){
+        const ratio = dist / lastPinchDist;
+        let ns = st.t.scale * ratio;
+        ns = Math.max(0.02, Math.min(6, ns));
+        const mw = s2w(st, midX, midY, canvas);
+        const rect = canvas.getBoundingClientRect(), dpr = devicePixelRatio || 1;
+        st.t.x = ((midX - rect.left) * dpr) / ns - mw.x;
+        st.t.y = ((midY - rect.top)  * dpr) / ns - mw.y;
+        st.t.scale = ns;
+        clamp(st, canvas); draw();
+      }
+      lastPinchDist = dist;
+      return;
+    }
+
     if (md) {
+      const p = clientPos(e);
       const dx = p.x - lx, dy = p.y - ly; lx = p.x; ly = p.y;
-      // dx/dy are client (CSS) pixels; convert to world displacement via current scale
       st.t.x += dx / st.t.scale;
       st.t.y += dy / st.t.scale;
       ensureScale(); clamp(st, canvas); draw();
@@ -35,7 +60,13 @@ export function attach(canvas, st, api){
     }
   }, { passive:false });
 
-  // wheel: listen only on canvas to avoid double handling
+  window.addEventListener('pointerup', e => {
+    pointers.delete(e.pointerId);
+    if (e.pointerId === activePointerId) activePointerId = null, md=false;
+    if (pointers.size < 2) lastPinchDist = undefined;
+  });
+
+  // wheel zoom (only on canvas)
   function onWheel(e){
     e.preventDefault();
     ensureScale();
@@ -43,11 +74,10 @@ export function attach(canvas, st, api){
     const p = clientPos(e);
     const mw = s2w(st, p.x, p.y, canvas);
     let ns = st.t.scale * (1 + dir * 0.18);
-    ns = Math.max(0.12, Math.min(4.0, ns));
-    // compute new offsets so the world point under pointer remains under pointer
+    ns = Math.max(0.02, Math.min(6.0, ns));
     const rect = canvas.getBoundingClientRect();
     const dpr = devicePixelRatio || 1;
-    const pxScreen = (p.x - rect.left) * dpr; // internal screen px
+    const pxScreen = (p.x - rect.left) * dpr;
     const pyScreen = (p.y - rect.top)  * dpr;
     st.t.x = pxScreen / ns - mw.x;
     st.t.y = pyScreen / ns - mw.y;
@@ -56,7 +86,7 @@ export function attach(canvas, st, api){
   }
   canvas.addEventListener('wheel', onWheel, { passive:false });
 
-  // click -> select system (galaxy mode)
+  // click -> select system (galaxy mode). For touch, emulate tap threshold by relying on pointer events.
   canvas.addEventListener('click', e => {
     if (st.mode !== 'galaxy') return;
     const p = clientPos(e);
@@ -89,17 +119,17 @@ export function attach(canvas, st, api){
     const rect = canvas.getBoundingClientRect();
     const cx = rect.left + rect.width/2, cy = rect.top + rect.height/2;
     if(k === 'z' || k === '+'){
-      const mw = s2w(st, cx, cy, canvas); let ns = Math.min(4, st.t.scale * 1.18);
-      const rect = canvas.getBoundingClientRect(), dpr = devicePixelRatio || 1;
-      st.t.x = ((cx - rect.left) * dpr) / ns - mw.x;
-      st.t.y = ((cy - rect.top)  * dpr) / ns - mw.y;
+      const mw = s2w(st, cx, cy, canvas); let ns = Math.min(6, st.t.scale * 1.18);
+      const rect2 = canvas.getBoundingClientRect(), dpr = devicePixelRatio || 1;
+      st.t.x = ((cx - rect2.left) * dpr) / ns - mw.x;
+      st.t.y = ((cy - rect2.top)  * dpr) / ns - mw.y;
       st.t.scale = ns;
     }
     if(k === 'x' || k === '-'){
-      const mw = s2w(st, cx, cy, canvas); let ns = Math.max(0.12, st.t.scale / 1.18);
-      const rect = canvas.getBoundingClientRect(), dpr = devicePixelRatio || 1;
-      st.t.x = ((cx - rect.left) * dpr) / ns - mw.x;
-      st.t.y = ((cy - rect.top)  * dpr) / ns - mw.y;
+      const mw = s2w(st, cx, cy, canvas); let ns = Math.max(0.02, st.t.scale / 1.18);
+      const rect2 = canvas.getBoundingClientRect(), dpr = devicePixelRatio || 1;
+      st.t.x = ((cx - rect2.left) * dpr) / ns - mw.x;
+      st.t.y = ((cy - rect2.top)  * dpr) / ns - mw.y;
       st.t.scale = ns;
     }
 
