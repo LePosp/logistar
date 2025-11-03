@@ -18,26 +18,21 @@ export function generateSystem(id){
 }
 
 export function drawSystem(ctx,st){
-  // Calculate center in client (CSS) coordinates using canvas bounding rect.
+  // Calculate center in canvas pixels (device pixels)
   const rect = ctx.canvas.getBoundingClientRect();
   const dpr = devicePixelRatio || 1;
-  // internal screen coords used by other logic are in canvas pixels (canvas.width = rect.width * dpr)
-  const cxClient = rect.left + rect.width / 2;
-  const cyClient = rect.top  + rect.height / 2;
-  // Convert center to internal "screen" pixels and apply transformation similarly to other code
-  const px = ( (rect.width * dpr) / 2 );
-  const py = ( (rect.height * dpr) / 2 );
-  // We want to draw in canvas coordinates (which are in device pixels), so compute center in canvas pixels
-  // Taking pan/offset into account:
-  const cx = px + st.t.x * st.t.scale;
-  const cy = py + st.t.y * st.t.scale;
+  const cxCanvas = (rect.width * dpr) / 2;
+  const cyCanvas = (rect.height * dpr) / 2;
+  // apply pan/offset (st.t.x/st.t.y are in world units)
+  const cx = cxCanvas + st.t.x * st.t.scale;
+  const cy = cyCanvas + st.t.y * st.t.scale;
   const R = 60 * st.t.scale;
 
   ctx.save();
   ctx.globalCompositeOperation = 'lighter';
   // big glow
   let g = ctx.createRadialGradient(cx,cy,0,cx,cy,R*6);
-  g.addColorStop(0,'rgba(255,230,180,0.15)'); g.addColorStop(1,'rgba(255,230,180,0)');
+  g.addColorStop(0,'rgba(255,230,180,0.20)'); g.addColorStop(1,'rgba(255,230,180,0)');
   ctx.fillStyle = g; ctx.beginPath(); ctx.arc(cx,cy,R*6,0,Math.PI*2); ctx.fill();
   // mid glow
   g = ctx.createRadialGradient(cx,cy,0,cx,cy,R*2.5);
