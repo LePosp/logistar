@@ -47,8 +47,8 @@ export function sectors(){
   return secs;
 }
 
+// Площадной (area-weighted) центроид полигона — даёт лучший центр для несимметричных секторов.
 function centroid(poly){
-  // polygon centroid (area-weighted). Works for non-self-intersecting polygons.
   let area = 0, cx = 0, cy = 0;
   for (let i = 0, n = poly.length, j = n - 1; i < n; j = i++) {
     const xi = poly[i].x, yi = poly[i].y;
@@ -59,13 +59,26 @@ function centroid(poly){
     cy += (yj + yi) * a;
   }
   if (Math.abs(area) < 1e-6) {
-    // fallback to simple average
+    // fallback: simple average
     let sx=0, sy=0;
     for(const p of poly){ sx+=p.x; sy+=p.y; }
-    return { x: sx/poly.length, y: sy/poly.length };
+    return { x:sx/poly.length, y:sy/poly.length };
   }
   area *= 0.5;
   return { x: cx / (6 * area), y: cy / (6 * area) };
+}
+
+export function bounds(sectors){
+  let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
+  for(const s of sectors) for(const p of s.poly){
+    if(p.x<minX)minX=p.x; if(p.y<minY)minY=p.y;
+    if(p.x>maxX)maxX=p.x; if(p.y>maxY)maxY=p.y;
+  }
+  const pad=900;
+  // симметричные пределы — центр относительно (0,0)
+  const extX = Math.max(Math.abs(minX), Math.abs(maxX))+pad;
+  const extY = Math.max(Math.abs(minY), Math.abs(maxY))+pad;
+  return { minX:-extX, minY:-extY, maxX:extX, maxY:extY };
 }
 
 // больше систем, не в ядре
