@@ -1,4 +1,3 @@
-
 export function generateSystem(id){
   let h=0; for(let i=0;i<id.length;i++) h=(h*131 + id.charCodeAt(i))>>>0;
   const rnd=()=> (h = (h*1664525 + 1013904223) >>> 0) / 0xffffffff;
@@ -12,8 +11,11 @@ export function generateSystem(id){
 }
 
 export function drawSystem(ctx,st){
-  const cx=innerWidth/2, cy=innerHeight/2; const R=60*st.t.scale;
-  // фон рисуется отдельно в main (systemBackground)
+  // центр системы — экранный центр, плюс учёт панорамы/зумов (та же трансформация)
+  const cx=innerWidth/2 + (st.t.x- (innerWidth/(devicePixelRatio||1)/st.t.scale)/2)*st.t.scale;
+  const cy=innerHeight/2 + (st.t.y- (innerHeight/(devicePixelRatio||1)/st.t.scale)/2)*st.t.scale;
+  const R=60*st.t.scale;
+
   ctx.save(); ctx.globalCompositeOperation='lighter';
   let g=ctx.createRadialGradient(cx,cy,0,cx,cy,R*6); g.addColorStop(0,'rgba(255,230,180,0.15)'); g.addColorStop(1,'rgba(255,230,180,0)'); ctx.fillStyle=g; ctx.beginPath(); ctx.arc(cx,cy,R*6,0,Math.PI*2); ctx.fill();
   g=ctx.createRadialGradient(cx,cy,0,cx,cy,R*2.5); g.addColorStop(0,'rgba(255,240,200,0.35)'); g.addColorStop(1,'rgba(255,240,200,0)'); ctx.fillStyle=g; ctx.beginPath(); ctx.arc(cx,cy,R*2.5,0,Math.PI*2); ctx.fill();
